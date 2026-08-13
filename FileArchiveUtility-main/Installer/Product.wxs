@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Folder Archive Tool" Language="1033" Version="1.0.0.0" Manufacturer="RSandH" UpgradeCode="e9f4c8d7-4b2a-4f7c-9c11-a8b7d2c3e5f6">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Folder Archive Tool is already installed."/>
+    <MediaTemplate/>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLFOLDER" Name="FolderArchiveTool"/>
+      </Directory>
+    </Directory>
+
+    <Feature Id="ProductFeature" Title="Folder Archive Tool" Level="1">
+      <ComponentGroupRef Id="AppFiles"/>
+    </Feature>
+  </Product>
+</Wix>

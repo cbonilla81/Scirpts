@@ -64,7 +64,7 @@ foreach ($vSwitch in $vSwitchNames.Keys) {
         # Write-Host "  Skipping known configuration differences for vSwitch '$vSwitch'." -ForegroundColor Green
     }
 }
-    }
+    
     # Check if the port group exists in the hashtable before accessing its properties
     if ($portGroupNames.ContainsKey($portGroup) -and $portGroupNames[$portGroup].Count -ne $esxiHosts.Count) {
         Write-Host "  Port Group '$portGroup' is not present on all hosts. Hosts: $($portGroupNames[$portGroup] -join ', ')" -ForegroundColor Red
