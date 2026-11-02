@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101a2b">
+  <title>File Archive | Web Console Demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --navy: #101a2b;
+      --ink: #172338;
+      --muted: #788499;
+      --line: #e6eaf0;
+      --canvas: #f5f7fa;
+      --blue: #3366e8;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--canvas); color: var(--ink); font-size: 14px; }
+    button, input { font: inherit; }
+    .shell { min-height: 100vh; }
+    .sidebar {
+      position: fixed; inset: 0 auto 0 0; z-index: 1; display: flex; flex-direction: column;
+      width: 248px; padding: 27px 18px 20px; background: var(--navy); color: #eaf0f9;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 0 9px 35px; color: white; text-decoration: none; }
+    .brand-logo { display: grid; width: 82px; height: 36px; place-items: center; overflow: hidden; border-radius: 5px; background: white; }
+    .brand-logo img { display: block; width: 80px; height: auto; }
+    .brand-name { font-size: 15px; font-weight: 700; letter-spacing: -.3px; }
+    .brand-name small { display: block; margin-top: 5px; color: #8996a9; font: 9px Consolas, monospace; letter-spacing: 1px; }
+    .nav-label, .eyebrow { color: #8996a9; font: 10px Consolas, monospace; letter-spacing: 1.2px; }
+    .nav-label { padding: 0 11px 11px; }
+    .nav-link { display: flex; align-items: center; gap: 11px; height: 42px; padding: 0 11px; border-radius: 7px; color: #bdc7d6; font-weight: 600; }
+    .nav-link.active { background: #253751; color: white; }
+    .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #6d99ff; }
+    .sidebar-note { display: flex; gap: 9px; align-items: flex-start; margin: auto 5px 20px; padding: 13px 10px; border: 1px solid #293850; border-radius: 8px; }
+    .status-pulse { width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: #54c995; box-shadow: 0 0 0 4px #54c9951a; }
+    .sidebar-note strong, .sidebar-note small { display: block; }
+    .sidebar-note strong { font-size: 11px; }
+    .sidebar-note small { margin-top: 4px; color: #8491a4; font-size: 10px; }
+    .sidebar-footer { padding: 12px 8px 0; border-top: 1px solid #29364a; color: #8290a4; font: 9px Consolas, monospace; }
+    .sidebar-footer span { float: right; color: #53647b; }
+    main { max-width: 1440px; margin-left: 248px; padding: 0 48px 25px; }
+    .topbar { display: flex; height: 67px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .breadcrumb { color: var(--muted); font-size: 12px; }
+    .breadcrumb span { padding: 0 8px; color: #b6bfcc; }
+    .local-badge { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 20px; background: #e9f6ef; color: #328763; font: 9px Consolas, monospace; letter-spacing: .4px; }
+    .local-badge span { width: 6px; height: 6px; border-radius: 50%; background: #42aa78; }
+    .page-heading { display: flex; align-items: center; justify-content: space-between; padding: 30px 0 23px; }
+    h1 { margin: 7px 0 5px; font-size: 25px; letter-spacing: -.8px; }
+    .page-heading p, .panel-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+    .panel { margin-bottom: 14px; border: 1px solid var(--line); border-radius: 10px; background: white; box-shadow: 0 2px 6px #17233805; }
+    .panel-heading { display: flex; align-items: center; gap: 13px; padding: 19px 21px 16px; }
+    .step-number { min-width: 34px; padding: 7px 6px; border: 1px solid #e1e9ff; border-radius: 6px; background: #eff3ff; color: var(--blue); text-align: center; font: 10px Consolas, monospace; }
+    h2 { margin: 0 0 4px; font-size: 14px; }
+    .panel-heading p { font-size: 11px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 17px; padding: 0 21px; }
+    .field { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+    .field.full { grid-column: 1 / -1; }
+    .field > span { color: #526077; font-size: 11px; font-weight: 700; }
+    .field i, .field em { margin-left: 5px; color: #9aa5b5; font-size: 10px; font-style: normal; font-weight: 400; }
+    .field i { color: #4b79e9; }
+    .field input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid #dfe4eb; border-radius: 5px; background: #fff; color: var(--ink); font-size: 12px; }
+    .field small { margin-top: -1px; color: #929daf; font-size: 10px; }
+    .input-suffix { display: flex; overflow: hidden; border: 1px solid #dfe4eb; border-radius: 5px; }
+    .input-suffix input { border: 0; }
+    .input-suffix span { display: grid; padding: 0 10px; place-items: center; border-left: 1px solid #e8ebf0; background: #f6f8fb; color: #8490a2; font: 10px Consolas, monospace; }
+    .actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding: 14px 21px 16px; border-top: 1px solid #edf0f4; }
+    .button { min-height: 35px; padding: 0 13px; border: 0; border-radius: 5px; font-size: 11px; font-weight: 700; }
+    .button-secondary { background: #eff3fc; color: #345bc0; }
+    .button-primary { background: var(--blue); color: white; }
+    .button span { margin-right: 5px; font-size: 15px; vertical-align: -1px; }
+    .inline-note { color: #949eae; font-size: 10px; }
+    .candidate-heading { padding-bottom: 14px; }
+    .text-button { margin-left: auto; border: 0; background: transparent; color: #4269cc; font-size: 10px; font-weight: 700; }
+    .table-wrap { overflow: auto; max-height: 260px; border-top: 1px solid #edf0f4; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    thead { position: sticky; top: 0; background: #f8f9fb; }
+    th { padding: 10px 12px; color: #8994a5; font: 9px Consolas, monospace; letter-spacing: .5px; white-space: nowrap; }
+    td { padding: 9px 12px; border-top: 1px solid #f0f2f5; color: #637087; font-size: 10px; white-space: nowrap; }
+    .check-col { width: 38px; padding-left: 19px; }
+    .check-col input { accent-color: var(--blue); }
+    .file-cell { max-width: 490px; }
+    .file-cell strong, .file-cell small { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .file-cell strong { color: #314057; font-size: 11px; font-weight: 600; }
+    .file-cell small { margin-top: 3px; color: #929daf; font-size: 9px; }
+    .size-col { width: 85px; padding-right: 20px; text-align: right; font-family: Consolas, monospace; }
+    .candidate-footer { display: flex; align-items: center; justify-content: space-between; padding: 11px 20px; color: #8691a3; font-size: 10px; }
+    .safe-label { display: inline-flex; align-items: center; gap: 5px; color: #618b78; }
+    .safe-label b { display: grid; width: 15px; height: 15px; place-items: center; border-radius: 50%; background: #edf7f1; color: #3a9a70; font-size: 9px; }
+    .run-options { padding: 0 21px; }
+    .toggle-row { position: relative; display: flex; align-items: center; gap: 11px; padding: 12px 0; border-top: 1px solid #f0f2f5; }
+    .toggle-row:first-child { border-top: 0; }
+    .toggle { position: relative; width: 29px; height: 16px; flex: 0 0 auto; border-radius: 12px; background: var(--blue); }
+    .toggle::after { position: absolute; top: 2px; left: 15px; width: 12px; height: 12px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #0002; content: ""; }
+    .toggle-copy strong, .toggle-copy small { display: block; }
+    .toggle-copy strong { color: #415069; font-size: 11px; }
+    .toggle-copy small { margin-top: 3px; color: #98a2b1; font-size: 10px; }
+    .default-tag { margin-left: auto; padding: 4px 6px; border-radius: 4px; background: #eff3ff; color: #5273c7; font: 8px Consolas, monospace; }
+    .run-actions { margin-top: 13px; }
+    .activity-heading { justify-content: space-between; padding-bottom: 12px; }
+    .activity-heading h2 { margin: 5px 0 0; font-size: 13px; }
+    .activity-heading .eyebrow { color: #8d98a9; font-size: 9px; }
+    .job-status { padding: 5px 7px; border-radius: 4px; background: #edf3ff; color: #3f67c9; font: 8px Consolas, monospace; }
+    .progress-track { height: 4px; overflow: hidden; margin: 0 20px 11px; border-radius: 3px; background: #edf0f4; }
+    .progress-track div { width: 100%; height: 100%; background: #4d79ea; }
+    .job-stats { padding: 0 20px 9px; color: #7a8698; font: 10px Consolas, monospace; }
+    .activity-log { height: 115px; overflow: auto; margin: 0 20px 13px; padding: 12px; border-radius: 5px; background: #111b2b; color: #acbbcf; font: 10px/1.65 Consolas, monospace; white-space: pre-wrap; }
+    .footer { padding: 13px 0 0; color: #9ba5b3; text-align: center; font-size: 9px; }
+    .footer span { padding: 0 5px; color: #c2c9d2; }
+    .demo-banner { position: fixed; right: 18px; bottom: 14px; z-index: 3; padding: 9px 12px; border: 1px solid #d7e2ff; border-radius: 7px; background: #fff; color: #4261a6; box-shadow: 0 5px 18px #17233814; font-size: 10px; }
+    .demo-banner strong { color: #3156b2; }
+    @media (max-width: 960px) {
+      .sidebar { width: 208px; }
+      main { margin-left: 208px; padding-right: 25px; padding-left: 25px; }
+    }
+    @media (max-width: 700px) {
+      .sidebar { position: static; width: auto; height: auto; padding: 13px 16px; }
+      .brand { padding: 0; }
+      .nav-label, .nav-link, .sidebar-note, .sidebar-footer { display: none; }
+      main { margin-left: 0; padding: 0 14px 18px; }
+      .topbar { height: 48px; }
+      .page-heading { padding: 22px 0 16px; }
+      h1 { font-size: 21px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .panel-heading, .form-grid, .run-options { padding-right: 14px; padding-left: 14px; }
+      .actions { align-items: flex-start; flex-direction: column; padding-right: 14px; padding-left: 14px; }
+      .candidate-footer { padding-right: 14px; padding-left: 14px; }
+      .file-cell { max-width: 220px; }
+      .activity-log { margin-right: 14px; margin-left: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="File Archive demo">
+        <span class="brand-logo"><img src="FolderArchiveWebConsole/wwwroot/RS%26H_Logo.png" alt="RS&amp;H"></span>
+        <span class="brand-name">File Archive<small>OPERATIONS CONSOLE</small></span>
+      </a>
+      <div class="nav-label">WORKSPACE</div>
+      <div class="nav-link active"><span class="nav-dot"></span> Archive files</div>
+      <div class="sidebar-note">
+        <span class="status-pulse"></span>
+        <div><strong>Private local session</strong><small>Only this computer can connect</small></div>
+      </div>
+      <div class="sidebar-footer">FILE ARCHIVE UTILITY <span>WEB CONSOLE</span></div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div class="breadcrumb">Workspace <span>/</span> Archive files</div>
+        <div class="local-badge"><span></span> LOCALHOST ONLY</div>
+      </header>
+
+      <section class="page-heading">
+        <div>
+          <div class="eyebrow">FILE MANAGEMENT</div>
+          <h1>Archive operations</h1>
+          <p>Find aging files, review the candidates, then run a safe dry run or move the selected files.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div class="step-number">01</div>
+          <div><h2>Locations &amp; criteria</h2><p>Choose the folders and rules used to find eligible files.</p></div>
+        </div>
+        <div class="form-grid">
+          <label class="field full"><span>Source folder <i>Required</i></span><input value="C:\DepartmentData" readonly><small>Files are scanned recursively. Reparse-point folders are not followed.</small></label>
+          <label class="field full"><span>Archive destination <i>Required</i></span><input value="D:\Archive\DepartmentData" readonly><small>The folder structure under the source is preserved at the destination.</small></label>
+          <label class="field"><span>Minimum file age</span><div class="input-suffix"><input value="365" readonly><span>days</span></div></label>
+          <label class="field"><span>Include extensions <em>Optional</em></span><input value=".pdf, .docx, .xlsx" readonly></label>
+          <label class="field"><span>Exclude extensions <em>Optional</em></span><input value=".tmp, .lock" readonly></label>
+          <label class="field"><span>Exclude paths <em>Optional</em></span><input value="LegalHold; ActiveProjects" readonly></label>
+          <label class="field"><span>Minimum size <em>Optional</em></span><div class="input-suffix"><input value="1" readonly><span>MB</span></div></label>
+          <label class="field"><span>Maximum size <em>Optional</em></span><div class="input-suffix"><input value="No limit" readonly></div></label>
+        </div>
+        <div class="actions"><button class="button button-secondary" type="button"><span aria-hidden="true">⌕</span> Scan for candidates</button><span class="inline-note">Both last access and last modified dates are older than the cutoff.</span></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading candidate-heading">
+          <div class="step-number">02</div>
+          <div><h2>Review candidates</h2><p>3 eligible files</p></div>
+          <button class="text-button" type="button">Select all</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th class="check-col">SELECT</th><th>FILE</th><th>LAST MODIFIED (UTC)</th><th class="size-col">SIZE</th></tr></thead>
+            <tbody>
+              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select Annual Report"></td><td class="file-cell"><strong>Annual Report.pdf</strong><small>C:\DepartmentData\Finance\2022\Annual Report.pdf</small></td><td>2022-10-19 14:32:10</td><td class="size-col">2.4 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select Project Notes"></td><td class="file-cell"><strong>Project Notes.docx</strong><small>C:\DepartmentData\Operations\Project Notes.docx</small></td><td>2023-01-08 09:16:42</td><td class="size-col">840 KB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" aria-label="Select Budget Archive"></td><td class="file-cell"><strong>Budget Archive.xlsx</strong><small>C:\DepartmentData\Finance\Budget Archive.xlsx</small></td><td>2022-06-11 17:05:03</td><td class="size-col">1.1 MB</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="candidate-footer"><span>2 selected</span><span class="safe-label"><b>✓</b> Nothing moves until you start a job</span></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading"><div class="step-number">03</div><div><h2>Run archive</h2><p>Dry run is enabled by default. Review the activity log after starting.</p></div></div>
+        <div class="run-options">
+          <div class="toggle-row"><span class="toggle"></span><span class="toggle-copy"><strong>Dry run</strong><small>Preview moves without moving files or creating folders.</small></span><b class="default-tag">DEFAULT</b></div>
+          <div class="toggle-row"><span class="toggle"></span><span class="toggle-copy"><strong>Remove empty source folders</strong><small>Remove empty folders after a successful move; never remove the source root.</small></span></div>
+          <div class="toggle-row"><span class="toggle" style="background:#ccd3de"><span style="display:block;width:12px;height:12px;margin:2px;border-radius:50%;background:white"></span></span><span class="toggle-copy"><strong>Replace older destination files</strong><small>Replace an existing file only when the source file is newer.</small></span></div>
+        </div>
+        <div class="actions run-actions"><button class="button button-primary" type="button"><span aria-hidden="true">➜</span> Start dry run</button><span class="inline-note">Selected files are rechecked against the scan criteria before processing.</span></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading activity-heading"><div><div class="eyebrow">JOB ACTIVITY</div><h2>Dry run complete</h2></div><span class="job-status">COMPLETED</span></div>
+        <div class="progress-track"><div></div></div>
+        <div class="job-stats">2 / 2 processed&nbsp; · &nbsp;0 moved&nbsp; · &nbsp;0 skipped&nbsp; · &nbsp;0 failed</div>
+        <pre class="activity-log">[2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Finance\2022\Annual Report.pdf -> D:\Archive\DepartmentData\Finance\2022\Annual Report.pdf
+[2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Operations\Project Notes.docx -> D:\Archive\DepartmentData\Operations\Project Notes.docx</pre>
+      </section>
+      <footer class="footer">File Archive Utility <span>•</span> Local browser console <span>•</span> Dry run first</footer>
+    </main>
+  </div>
+  <div class="demo-banner"><strong>DEMO PREVIEW</strong> &nbsp; Sample data only — no files will be scanned or moved.</div>
+</body>
+</html>
