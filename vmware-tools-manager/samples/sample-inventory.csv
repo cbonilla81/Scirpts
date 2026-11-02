@@ -1,0 +1,5 @@
+VMName,VMId,PowerState,Category,ToolsRunningStatus,ToolsVersionStatus,ToolsVersion,ToolsInstallType,GuestOS,Cluster,ESXiHost
+WIN-SRV-01,VirtualMachine-vm-101,PoweredOn,Healthy,guestToolsRunning,guestToolsCurrent,12389,guestToolsTypeMSI,Microsoft Windows Server 2022,Production,esx01.example.org
+APP-SRV-02,VirtualMachine-vm-102,PoweredOn,Outdated,guestToolsRunning,guestToolsNeedUpgrade,11365,guestToolsTypeMSI,Microsoft Windows Server 2019,Production,esx02.example.org
+LINUX-03,VirtualMachine-vm-103,PoweredOn,Guest Managed,guestToolsRunning,guestToolsUnmanaged,12000,guestToolsTypeOpenVMTools,Ubuntu Linux 24.04,Development,esx03.example.org
+OFFLINE-04,VirtualMachine-vm-104,PoweredOff,Powered Off,guestToolsNotRunning,guestToolsNotInstalled,0,,Microsoft Windows Server 2016,Development,esx03.example.org

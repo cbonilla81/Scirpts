@@ -1,0 +1,32 @@
+- name: Configure managed hosts
+  hosts: servers
+  tasks:
+    - name: Confirm basic reachability to managed hosts
+      ansible.builtin.ping:
+    - name: Create service account group
+      ansible.builtin.group:
+        name: service_accounts
+      become: true
+      tags: accounts
+    - name: Create Ansible user account
+      ansible.builtin.user:
+        name: ansible
+        groups:
+          - service_accounts
+      become: true
+      tags: accounts
+    - name: Populate MOTD banner file with content
+      ansible.builtin.copy:
+        content: "{{ banner }}\n"
+        dest: /etc/motd
+      become: true
+      tags: files
+    - name: Create backups directory
+      ansible.builtin.file:
+        path: /backups
+        owner: ansible
+        group: service_accounts
+        mode: 0644
+        state: directory
+      become: true
+      tags: files

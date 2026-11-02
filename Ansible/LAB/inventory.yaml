@@ -1,0 +1,10 @@
+all:
+  children:
+    servers:
+      hosts:
+        ansible-managed-host-1:
+          ansible_host: 172.31.24.11
+        ansible-managed-host-2:
+          ansible_host: 172.31.24.12
+      vars:
+        banner: Welcome to the lab environment

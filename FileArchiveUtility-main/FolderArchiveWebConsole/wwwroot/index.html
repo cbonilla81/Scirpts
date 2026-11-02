@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101a2b">
+  <title>File Archive | Operations Console</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="File Archive home">
+        <span class="brand-mark">FA</span>
+        <span>File Archive<small>OPERATIONS CONSOLE</small></span>
+      </a>
+      <div class="nav-label">WORKSPACE</div>
+      <a class="nav-link active" href="#archive"><span class="nav-dot"></span> Archive files</a>
+      <div class="sidebar-note">
+        <span class="status-pulse"></span>
+        <div><strong>Private local session</strong><small>Only this computer can connect</small></div>
+      </div>
+      <div class="sidebar-footer">FILE ARCHIVE UTILITY <span>WEB CONSOLE</span></div>
+    </aside>
+
+    <main id="archive">
+      <header class="topbar">
+        <div class="breadcrumb">Workspace <span>/</span> Archive files</div>
+        <div class="local-badge"><span></span> LOCALHOST ONLY</div>
+      </header>
+
+      <section class="page-heading">
+        <div>
+          <div class="eyebrow">FILE MANAGEMENT</div>
+          <h1>Archive operations</h1>
+          <p>Find aging files, review the candidates, then run a safe dry run or move the selected files.</p>
+        </div>
+        <div class="heading-mark" aria-hidden="true">⌁</div>
+      </section>
+
+      <form id="archive-form">
+        <section class="panel">
+          <div class="panel-heading">
+            <div class="step-number">01</div>
+            <div><h2>Locations &amp; criteria</h2><p>Choose the folders and the rules used to find eligible files.</p></div>
+          </div>
+          <div class="form-grid">
+            <label class="field full">
+              <span>Source folder <i>Required</i></span>
+              <input id="source" name="sourcePath" type="text" placeholder="C:\Data or \\server\share\Data" required autocomplete="off">
+              <small>Files are scanned recursively. Reparse-point folders are not followed.</small>
+            </label>
+            <label class="field full">
+              <span>Archive destination <i>Required</i></span>
+              <input id="destination" name="destinationPath" type="text" placeholder="D:\Archive or \\server\share\Archive" required autocomplete="off">
+              <small>The folder structure under the source is preserved at the destination.</small>
+            </label>
+            <label class="field">
+              <span>Minimum file age</span>
+              <div class="input-suffix"><input id="age-days" type="number" min="1" max="36500" value="365" required><span>days</span></div>
+            </label>
+            <label class="field">
+              <span>Include extensions <em>Optional</em></span>
+              <input id="include-extensions" type="text" placeholder=".pdf, .docx">
+            </label>
+            <label class="field">
+              <span>Exclude extensions <em>Optional</em></span>
+              <input id="exclude-extensions" type="text" placeholder=".tmp, .lock">
+            </label>
+            <label class="field">
+              <span>Exclude paths <em>Optional</em></span>
+              <input id="exclude-paths" type="text" placeholder="LegalHold; ActiveProjects">
+              <small>Matching path text is excluded. Separate entries with commas or semicolons.</small>
+            </label>
+            <label class="field">
+              <span>Minimum size <em>Optional</em></span>
+              <div class="input-suffix"><input id="min-size" type="number" min="0" step="any" placeholder="0"><span>MB</span></div>
+            </label>
+            <label class="field">
+              <span>Maximum size <em>Optional</em></span>
+              <div class="input-suffix"><input id="max-size" type="number" min="0" step="any" placeholder="No limit"><span>MB</span></div>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="scan-button" class="button button-secondary" type="button" disabled><span aria-hidden="true">⌕</span> Scan for candidates</button>
+            <span class="inline-note">Both last access and last modified dates must be older than the cutoff.</span>
+          </div>
+        </section>
+
+        <section class="panel candidates-panel">
+          <div class="panel-heading candidate-heading">
+            <div class="step-number">02</div>
+            <div><h2>Review candidates</h2><p id="candidate-summary">Run a scan to see eligible files here.</p></div>
+            <button id="select-all" class="text-button" type="button" disabled>Select all</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th class="check-col"><span class="visually-hidden">Select</span></th><th>FILE</th><th>LAST MODIFIED (UTC)</th><th class="size-col">SIZE</th></tr></thead>
+              <tbody id="candidate-list"><tr class="empty-row"><td colspan="4">No scan results yet. Set your locations and scan to begin.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="candidate-footer"><span id="selection-count">0 selected</span><span class="safe-label"><span>✓</span> Nothing moves until you start a job</span></div>
+        </section>
+
+        <section class="panel run-panel">
+          <div class="panel-heading">
+            <div class="step-number">03</div>
+            <div><h2>Run archive</h2><p>Dry run is enabled by default. Review the activity log after starting.</p></div>
+          </div>
+          <div class="run-options">
+            <label class="toggle-row"><input id="dry-run" type="checkbox" checked><span class="toggle"></span><span><strong>Dry run</strong><small>Preview moves without moving files or creating folders.</small></span><b class="default-tag">DEFAULT</b></label>
+            <label class="toggle-row"><input id="remove-empty" type="checkbox" checked><span class="toggle"></span><span><strong>Remove empty source folders</strong><small>Remove empty folders after a successful move; never remove the source root.</small></span></label>
+            <label class="toggle-row"><input id="replace-newer" type="checkbox"><span class="toggle"></span><span><strong>Replace older destination files</strong><small>Replace an existing file only when the source file is newer.</small></span></label>
+          </div>
+          <div id="live-confirmation" class="confirmation-box" hidden>
+            <label><input id="confirm-live" type="checkbox"><span>I reviewed the dry run and understand that live mode moves files out of the source folder.</span></label>
+          </div>
+          <div class="actions run-actions">
+            <button id="run-button" class="button button-primary" type="button" disabled><span aria-hidden="true">➜</span> Start dry run</button>
+            <span class="inline-note">Selected files are rechecked against the scan criteria before processing.</span>
+          </div>
+        </section>
+      </form>
+
+      <section class="panel activity-panel">
+        <div class="panel-heading activity-heading">
+          <div><div class="eyebrow">JOB ACTIVITY</div><h2 id="job-title">Ready</h2></div>
+          <span id="job-status" class="job-status">IDLE</span>
+        </div>
+        <div id="progress-track" class="progress-track" hidden><div id="progress-bar"></div></div>
+        <div id="job-stats" class="job-stats" hidden></div>
+        <pre id="activity-log" class="activity-log" aria-live="polite">Console ready. Run a scan to review eligible files.</pre>
+      </section>
+      <footer class="footer">File Archive Utility <span>•</span> Local browser console <span>•</span> Dry run first</footer>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

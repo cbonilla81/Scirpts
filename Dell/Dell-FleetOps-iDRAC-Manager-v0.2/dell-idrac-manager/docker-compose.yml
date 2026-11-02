@@ -1,0 +1,18 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-CHANGE-ME-BEFORE-PRODUCTION}
+      - SIMULATION_MODE=${SIMULATION_MODE:-true}
+      - VERIFY_TLS=${VERIFY_TLS:-false}
+    volumes:
+      - idrac_data:/app/data
+    restart: unless-stopped
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on: [backend]
+    restart: unless-stopped
+volumes:
+  idrac_data:

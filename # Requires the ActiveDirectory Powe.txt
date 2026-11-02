@@ -1,0 +1,36 @@
+# Requires the ActiveDirectory PowerShell module
+
+Import-Module ActiveDirectory
+
+$Domain = Get-ADDomain
+$Forest = Get-ADForest
+
+$FSMORoles = @(
+    [PSCustomObject]@{
+        FSMORole = "Schema Master"
+        Scope    = "Forest"
+        Holder   = $Forest.SchemaMaster
+    }
+    [PSCustomObject]@{
+        FSMORole = "Domain Naming Master"
+        Scope    = "Forest"
+        Holder   = $Forest.DomainNamingMaster
+    }
+    [PSCustomObject]@{
+        FSMORole = "PDC Emulator"
+        Scope    = "Domain"
+        Holder   = $Domain.PDCEmulator
+    }
+    [PSCustomObject]@{
+        FSMORole = "RID Master"
+        Scope    = "Domain"
+        Holder   = $Domain.RIDMaster
+    }
+    [PSCustomObject]@{
+        FSMORole = "Infrastructure Master"
+        Scope    = "Domain"
+        Holder   = $Domain.InfrastructureMaster
+    }
+)
+
+$FSMORoles | Format-Table -AutoSize
