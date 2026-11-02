@@ -9,7 +9,8 @@ The web console is an additional edition, not a replacement for the existing app
 - `Archive-OldFiles-GUI.ps1` — PowerShell GUI application.
 - `FolderArchiveTool/` — .NET 8 Windows Forms desktop application.
 - `FolderArchiveWebConsole/` — .NET 8 ASP.NET Core browser console.
-- `RS&H_Logo.png` — RS&H logo used by the web console.
+- `FolderArchiveWebConsole/wwwroot/RS&H_Logo.png` — RS&H logo displayed in the web console.
+- `web-console-demo.html` — Standalone visual demo of the web console with sample data.
 - `run_web_console.ps1` — Starts the web console from source.
 - `build_web_console.ps1` — Publishes and packages the web console for Windows x64.
 - `build_and_package.ps1` — Publishes and packages the Windows Forms application.
@@ -44,6 +45,10 @@ The web console is an additional edition, not a replacement for the existing app
 - Restrict the web server to the local computer; it does not accept connections from other devices.
 
 The web console requires both the file's last access time and last modified time to be older than the selected age threshold. Reparse-point folders are skipped. Unlike the PowerShell GUI, the web console does not currently provide folder compression or persistent text/CSV reports.
+
+### Web Console Demo
+
+To preview the interface without starting the web server, open [web-console-demo.html](./web-console-demo.html) in a browser from the project directory. The demo displays sample paths, candidate files, and dry-run activity; it does not scan folders or move files. Keep the adjacent `FolderArchiveWebConsole` directory in place so the demo can load the RS&H logo.
 
 ## Windows Forms Desktop Features
 
