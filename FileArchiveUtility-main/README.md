@@ -9,6 +9,7 @@ The web console is an additional edition, not a replacement for the existing app
 - `Archive-OldFiles-GUI.ps1` — PowerShell GUI application.
 - `FolderArchiveTool/` — .NET 8 Windows Forms desktop application.
 - `FolderArchiveWebConsole/` — .NET 8 ASP.NET Core browser console.
+- `RS&H_Logo.png` — RS&H logo used by the web console.
 - `run_web_console.ps1` — Starts the web console from source.
 - `build_web_console.ps1` — Publishes and packages the web console for Windows x64.
 - `build_and_package.ps1` — Publishes and packages the Windows Forms application.
@@ -39,6 +40,7 @@ The web console is an additional edition, not a replacement for the existing app
 - Optionally remove empty source subfolders after successful moves.
 - Optionally replace an existing destination file only when the source file is newer.
 - View job progress and activity in the browser.
+- Display the RS&H logo in the console navigation.
 - Restrict the web server to the local computer; it does not accept connections from other devices.
 
 The web console requires both the file's last access time and last modified time to be older than the selected age threshold. Reparse-point folders are skipped. Unlike the PowerShell GUI, the web console does not currently provide folder compression or persistent text/CSV reports.

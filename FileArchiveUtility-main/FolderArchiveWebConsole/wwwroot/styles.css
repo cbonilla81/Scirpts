@@ -19,7 +19,7 @@ button, input { font: inherit; }
 .sidebar { width: 248px; position: fixed; inset: 0 auto 0 0; background: var(--navy); color: #eaf0f9; padding: 27px 18px 20px; display: flex; flex-direction: column; z-index: 2; }
 .brand { color: #fff; text-decoration: none; display: flex; align-items: center; gap: 12px; padding: 0 9px 35px; font: 700 16px Manrope, sans-serif; letter-spacing: -.3px; }
 .brand small { display: block; color: #8593a9; font: 500 9px "DM Mono", monospace; letter-spacing: 1.3px; margin-top: 5px; }
-.brand-mark { width: 36px; height: 36px; border-radius: 10px; background: #3266e5; color: white; display: grid; place-items: center; font: 700 12px "DM Mono", monospace; box-shadow: 0 5px 16px #0e4bce55; }
+.brand-logo { display: block; width: 82px; height: auto; flex: 0 0 auto; }
 .nav-label, .eyebrow { color: #8996a9; font: 500 10px "DM Mono", monospace; letter-spacing: 1.2px; }
 .nav-label { padding: 0 11px 11px; }
 .nav-link { display: flex; align-items: center; gap: 11px; height: 42px; border-radius: 7px; color: #bdc7d6; text-decoration: none; padding: 0 11px; font-weight: 600; }
