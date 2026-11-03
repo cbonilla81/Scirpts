@@ -17,11 +17,17 @@ const jobStats = document.querySelector("#job-stats");
 const toast = document.querySelector("#toast");
 
 let sessionToken = "";
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? "";
 let candidates = [];
 let jobRunning = false;
 let toastTimeout;
 
 async function initialize() {
+  if (csrfToken) {
+    scanButton.disabled = false;
+    return;
+  }
+
   try {
     const response = await fetch("/api/session", { cache: "no-store" });
     if (!response.ok) throw new Error("Could not establish a local console session.");
@@ -51,12 +57,16 @@ function requestOptions() {
 }
 
 async function api(path, body) {
+  const headers = { "Content-Type": "application/json" };
+  if (csrfToken) {
+    headers["X-CSRF-TOKEN"] = csrfToken;
+  } else {
+    headers["X-Archive-Console-Token"] = sessionToken;
+  }
+
   const response = await fetch(path, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Archive-Console-Token": sessionToken
-    },
+    headers,
     body: JSON.stringify(body ?? {})
   });
   if (response.status === 204) return null;

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="8.0.33" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\FolderArchiveWebConsole\ArchiveOperationsService.cs" Link="ArchiveOperationsService.cs" />
+    <Content Include="..\FolderArchiveWebConsole\wwwroot\index.html" Link="HostedIndex.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\FolderArchiveWebConsole\wwwroot\app.js" Link="wwwroot\app.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\FolderArchiveWebConsole\wwwroot\styles.css" Link="wwwroot\styles.css" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\FolderArchiveWebConsole\wwwroot\RS&amp;H_Logo.png" Link="wwwroot\RS&amp;H_Logo.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Login.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

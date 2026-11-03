@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101a2b">
+  <title>File Archive | Hosted Console Demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #172338;
+      background: #f5f7fa;
+    }
+
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; }
+    .login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .login-card { width: min(100%, 410px); padding: 40px; border: 1px solid #e6eaf0; border-radius: 12px; background: white; box-shadow: 0 12px 40px #17233812; }
+    .logo { display: block; width: 106px; height: auto; margin-bottom: 30px; }
+    .demo-label { display: inline-block; padding: 5px 8px; border-radius: 4px; background: #fff3d8; color: #875f13; font-size: 9px; font-weight: 700; letter-spacing: .8px; }
+    .eyebrow { margin-top: 21px; color: #788499; font-size: 10px; font-weight: 700; letter-spacing: 1.4px; }
+    h1 { margin: 9px 0; font-size: 27px; letter-spacing: -.5px; }
+    .login-card p { color: #788499; font-size: 13px; line-height: 1.6; }
+    .sign-in { display: block; width: 100%; margin-top: 17px; padding: 13px 16px; border: 0; border-radius: 6px; background: #3366e8; color: white; text-align: center; text-decoration: none; cursor: pointer; font: 700 13px "Segoe UI", sans-serif; }
+    .sign-in:hover { background: #2854cc; }
+    .security-note { margin: 19px 0 0; font-size: 11px !important; }
+    .demo-warning { margin-top: 21px; padding: 10px 12px; border: 1px solid #f0dfb9; border-radius: 5px; background: #fffaf0; color: #806126; font-size: 11px; line-height: 1.5; }
+    @media (max-width: 480px) {
+      .login-card { padding: 28px 23px; }
+    }
+  </style>
+</head>
+<body>
+  <main id="login-screen" class="login-screen">
+    <section class="login-card" aria-labelledby="login-title">
+      <img class="logo" src="FolderArchiveWebConsole/wwwroot/RS%26H_Logo.png" alt="RS&amp;H">
+      <span class="demo-label">DEMO PREVIEW</span>
+      <div class="eyebrow">FILE ARCHIVE UTILITY</div>
+      <h1 id="login-title">Welcome back</h1>
+      <p>Sign in with your organization account to access the hosted archive console.</p>
+      <a class="sign-in" href="web-console-demo.html?hosted">Continue to hosted console demo</a>
+      <p class="security-note">In the hosted application, sign-in is handled by Microsoft Entra ID.</p>
+      <div class="demo-warning">This is a visual demonstration. The button does not authenticate you, and the sample console does not scan or move files.</div>
+    </section>
+  </main>
+
+</body>
+</html>

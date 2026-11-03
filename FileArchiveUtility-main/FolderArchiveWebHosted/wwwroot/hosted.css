@@ -1,0 +1,7 @@
+.account-actions { display: flex; align-items: center; gap: 14px; color: #788499; font-size: 11px; }
+.account-actions form { margin: 0; }
+.account-actions button { padding: 7px 11px; border: 1px solid #dfe4eb; border-radius: 5px; background: #fff; color: #345bc0; cursor: pointer; font-size: 11px; font-weight: 700; }
+@media (max-width: 700px) {
+  .account-actions { gap: 7px; }
+  .account-actions > span { display: none; }
+}

@@ -48,6 +48,8 @@
     .breadcrumb span { padding: 0 8px; color: #b6bfcc; }
     .local-badge { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 20px; background: #e9f6ef; color: #328763; font: 9px Consolas, monospace; letter-spacing: .4px; }
     .local-badge span { width: 6px; height: 6px; border-radius: 50%; background: #42aa78; }
+    .demo-login-link { margin-left: auto; color: #4269cc; font-size: 10px; font-weight: 700; text-decoration: none; }
+    .demo-login-link:hover { text-decoration: underline; }
     .page-heading { display: flex; align-items: center; justify-content: space-between; padding: 30px 0 23px; }
     h1 { margin: 7px 0 5px; font-size: 25px; letter-spacing: -.8px; }
     .page-heading p, .panel-heading p { margin: 0; color: var(--muted); font-size: 12px; }
@@ -222,5 +224,20 @@
     </main>
   </div>
   <div class="demo-banner"><strong>DEMO PREVIEW</strong> &nbsp; Sample data only — no files will be scanned or moved.</div>
+  <script>
+    if (new URLSearchParams(window.location.search).has("hosted")) {
+      document.querySelector(".sidebar-note strong").textContent = "Entra ID authenticated";
+      document.querySelector(".sidebar-note small").textContent = "Access managed by your organization";
+      document.querySelector(".sidebar-footer span").textContent = "HOSTED DEMO";
+      document.querySelector(".local-badge").lastChild.textContent = " SECURE HOSTED DEMO";
+      const loginLink = document.createElement("a");
+      loginLink.className = "demo-login-link";
+      loginLink.href = "hosted-web-console-demo.html";
+      loginLink.textContent = "Back to sign-in demo";
+      document.querySelector(".topbar").insertBefore(loginLink, document.querySelector(".local-badge"));
+      document.querySelector(".footer").innerHTML =
+        'File Archive Utility <span>•</span> Hosted console visual demo <span>•</span> Sample data only';
+    }
+  </script>
 </body>
 </html>
