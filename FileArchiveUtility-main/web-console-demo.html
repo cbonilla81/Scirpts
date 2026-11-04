@@ -119,6 +119,7 @@
     .progress-track { height: 4px; overflow: hidden; margin: 0 20px 11px; border-radius: 3px; background: #edf0f4; }
     .progress-track div { width: 100%; height: 100%; background: #4d79ea; }
     .job-stats { padding: 0 20px 9px; color: #7a8698; font: 10px Consolas, monospace; }
+    .job-export-row { display: flex; align-items: center; gap: 12px; margin: 0 20px 10px; }
     .activity-log { height: 115px; overflow: auto; margin: 0 20px 13px; padding: 12px; border-radius: 5px; background: #111b2b; color: #acbbcf; font: 10px/1.65 Consolas, monospace; white-space: pre-wrap; }
     .footer { padding: 13px 0 0; color: #9ba5b3; text-align: center; font-size: 9px; }
     .footer span { padding: 0 5px; color: #c2c9d2; }
@@ -240,6 +241,7 @@
         <div class="panel-heading activity-heading"><div><div class="eyebrow">JOB ACTIVITY</div><h2>Dry run complete</h2></div><span class="job-status">COMPLETED</span></div>
         <div class="progress-track"><div></div></div>
         <div class="job-stats">4 / 4 processed&nbsp; · &nbsp;0 moved&nbsp; · &nbsp;0 skipped&nbsp; · &nbsp;0 failed</div>
+        <div class="job-export-row"><button class="button button-secondary" type="button">Export job output</button><span class="inline-note">Download the job summary and activity as CSV.</span></div>
         <pre class="activity-log">[2026-11-02 09:12:04] Dry run: Would preserve folder: C:\DepartmentData\Projects\LegacyPortal -> D:\Archive\DepartmentData\Projects\LegacyPortal
 [2026-11-02 09:12:04] Dry run: Would archive entire folder: C:\DepartmentData\Projects\LegacyPortal -> D:\Archive\DepartmentData\Projects\LegacyPortal
 [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Finance\2022\Annual Report.pdf -> D:\Archive\DepartmentData\Finance\2022\Annual Report.pdf

@@ -40,6 +40,7 @@ The localhost web console remains restricted to `localhost` for personal use. Th
 - Filter by age, extension, minimum or maximum size, and excluded path text.
 - Select individual candidates or use the header checkbox to select all candidates shown in the scan.
 - Export every eligible file in the latest scan (up to 5,000) to CSV, including its selection state.
+- Export the completed job summary and activity log to CSV from the Job Activity panel.
 - Select a subfolder to archive its entire contents, including files that do not match the scan filters.
 - Preview the operation in Dry Run mode before moving files.
 - Preserve the relative directory structure in the archive destination.
@@ -159,9 +160,9 @@ The script publishes the separate `FolderArchiveWebHosted` project for Windows x
 - For multiple IIS instances, configure a shared ASP.NET Core Data Protection key ring and the same application name on every instance; otherwise authentication cookies may not be readable on another node. Coordinate jobs across nodes separately—the current in-memory single-job guard is per process, not distributed.
 - Keep Windows, IIS, the .NET Hosting Bundle, and the Entra client secret maintained under your organization's patching and rotation policies.
 
-The hosted console requires both a file's last access time and last modified time to be older than the selected age threshold. Reparse-point folders are skipped. Unlike the PowerShell GUI, it does not currently provide folder compression or persistent text/CSV reports.
+The hosted console requires both a file's last access time and last modified time to be older than the selected age threshold. Reparse-point folders are skipped. Job activity and scanned candidate lists can be downloaded as CSV, but those exports are not retained as persistent reports. Unlike the PowerShell GUI, it does not currently provide folder compression.
 
-The web console requires both the file's last access time and last modified time to be older than the selected age threshold. Reparse-point folders are skipped. Unlike the PowerShell GUI, the web console does not currently provide folder compression or persistent text/CSV reports.
+The web console requires both the file's last access time and last modified time to be older than the selected age threshold. Reparse-point folders are skipped. Job activity and scanned candidate lists can be downloaded as CSV, but those exports are not retained as persistent reports. Unlike the PowerShell GUI, the web console does not currently provide folder compression.
 
 ### Web Console Demo
 
@@ -225,7 +226,7 @@ The web console is an additional version; it does not replace the existing Power
 
 The console starts a local web server at `http://localhost:5187` and attempts to open the browser. Keep the PowerShell window open while using the console; press **Ctrl+C** to stop it.
 
-The web console supports recursive file scans, age and file filters, candidate selection, and selecting a subfolder to archive all of its contents regardless of those filters. Use the header checkbox to select or clear all eligible files in the latest scan. **Export CSV** downloads every eligible file returned by that scan (up to 5,000), whether selected or not, with its path, name, last-modified timestamp, size, and selection state. Folder selections are not included in this file-candidate CSV. Folder selections must be below the configured source folder; the source root itself cannot be selected. Dry runs, live moves, optional removal of empty source folders, and replacing an existing destination file only when the source is newer are supported. Existing destination files that are not replaced are skipped. Both last access and last write timestamps must be older than the age threshold for individually selected files. Reparse-point folders are skipped. The browser console does not currently offer folder compression or persistent job reports; live job activity is shown in the console while it is running.
+The web console supports recursive file scans, age and file filters, candidate selection, and selecting a subfolder to archive all of its contents regardless of those filters. Use the header checkbox to select or clear all eligible files in the latest scan. **Export CSV** in the candidate panel downloads every eligible file returned by that scan (up to 5,000), whether selected or not, with its path, name, last-modified timestamp, size, and selection state. Folder selections are not included in this file-candidate CSV. After a job completes, **Export job output** in the Job Activity panel downloads a CSV with the final status, processed/moved/skipped/failed counts, and each activity entry. These downloads are not retained as persistent reports. Folder selections must be below the configured source folder; the source root itself cannot be selected. Dry runs, live moves, optional removal of empty source folders, and replacing an existing destination file only when the source is newer are supported. Existing destination files that are not replaced are skipped. Both last access and last write timestamps must be older than the age threshold for individually selected files. Reparse-point folders are skipped. The browser console does not currently offer folder compression; live job activity is shown in the console while it is running.
 
 Use the separate [hosted web console](#hosted-web-console) for shared, authenticated access; the localhost edition remains limited to the computer running it.
 

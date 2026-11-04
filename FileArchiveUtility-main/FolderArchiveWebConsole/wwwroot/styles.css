@@ -131,6 +131,7 @@ td { padding: 9px 12px; border-top: 1px solid #f0f2f5; color: #637087; font-size
 .progress-track[hidden], .job-stats[hidden] { display: none; }
 .progress-track div { height: 100%; width: 0; background: #4d79ea; transition: width .25s; }
 .job-stats { padding: 0 20px 9px; color: #7a8698; font: 10px "DM Mono", monospace; }
+.job-export-row { display: flex; align-items: center; gap: 12px; margin: 0 20px 10px; }
 .activity-log { margin: 0 20px; padding: 12px; height: 150px; overflow: auto; border-radius: 5px; background: #111b2b; color: #acbbcf; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.65 "DM Mono", monospace; }
 .footer { color: #9ba5b3; text-align: center; padding: 13px 0 0; font-size: 9px; }
 .footer span { padding: 0 5px; color: #c2c9d2; }
@@ -163,4 +164,5 @@ td { padding: 9px 12px; border-top: 1px solid #f0f2f5; color: #637087; font-size
   .file-cell { max-width: 220px; }
   .activity-log { margin-left: 14px; margin-right: 14px; }
   .progress-track, .job-stats { margin-left: 14px; margin-right: 14px; padding-left: 0; padding-right: 0; }
+  .job-export-row { margin-left: 14px; margin-right: 14px; align-items: flex-start; flex-direction: column; }
 }

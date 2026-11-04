@@ -6,6 +6,7 @@ const exportCsvButton = document.querySelector("#export-csv");
 const candidateList = document.querySelector("#candidate-list");
 const candidateSummary = document.querySelector("#candidate-summary");
 const selectionCount = document.querySelector("#selection-count");
+const exportJobCsvButton = document.querySelector("#export-job-csv");
 const folderPathInput = document.querySelector("#folder-path");
 const addFolderButton = document.querySelector("#add-folder");
 const selectedFoldersList = document.querySelector("#selected-folders");
@@ -24,6 +25,7 @@ let sessionToken = "";
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? "";
 let candidates = [];
 let selectedFolders = [];
+let latestJobStatus = null;
 let jobRunning = false;
 let toastTimeout;
 
@@ -241,6 +243,18 @@ function csvCell(value) {
   return `"${safeText.replaceAll('"', '""')}"`;
 }
 
+function downloadCsv(filename, rows) {
+  const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 exportCsvButton.addEventListener("click", () => {
   if (candidates.length === 0 || jobRunning) return;
 
@@ -255,15 +269,38 @@ exportCsvButton.addEventListener("click", () => {
       selected.has(candidate.path) ? "Yes" : "No"
     ])
   ];
-  const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "archive-candidates.csv";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  downloadCsv("archive-candidates.csv", rows);
+});
+
+exportJobCsvButton.addEventListener("click", () => {
+  if (!latestJobStatus || latestJobStatus.status === "Running") return;
+
+  const rows = [[
+    "Record Type", "Timestamp", "Outcome", "Message",
+    "Status", "Total", "Processed", "Archived", "Skipped", "Failed"
+  ]];
+  rows.push([
+    "Summary", "", "", "",
+    latestJobStatus.status,
+    latestJobStatus.total,
+    latestJobStatus.processed,
+    latestJobStatus.archived,
+    latestJobStatus.skipped,
+    latestJobStatus.failed
+  ]);
+
+  for (const log of latestJobStatus.logs) {
+    const match = log.match(/^\[([^\]]+)\]\s+([^:]+):\s?([\s\S]*)$/);
+    rows.push([
+      "Activity",
+      match?.[1] ?? "",
+      match?.[2] ?? "",
+      match?.[3] ?? log,
+      "", "", "", "", "", ""
+    ]);
+  }
+
+  downloadCsv("archive-job-output.csv", rows);
 });
 
 dryRunInput.addEventListener("change", () => {
@@ -294,6 +331,8 @@ runButton.addEventListener("click", async () => {
   try {
     const { id: jobId } = await api("/api/jobs", request);
     jobRunning = true;
+    latestJobStatus = null;
+    exportJobCsvButton.disabled = true;
     setControlsDisabled(true);
     setJobDisplay(dryRunInput.checked ? "Dry run in progress" : "Archive in progress", "RUNNING");
     progressTrack.hidden = false;
@@ -312,6 +351,7 @@ async function pollJob(jobId) {
     while (jobRunning) {
       const status = await api("/api/jobs/status");
       if (!status || status.id !== jobId) throw new Error("The archive job status is unavailable.");
+      latestJobStatus = status;
       const percent = status.total === 0 ? 100 : Math.min(100, Math.round((status.processed / status.total) * 100));
       progressBar.style.width = `${percent}%`;
       jobStats.textContent = `${status.processed.toLocaleString()} / ${status.total.toLocaleString()} processed  ·  ${status.archived.toLocaleString()} moved  ·  ${status.skipped.toLocaleString()} skipped  ·  ${status.failed.toLocaleString()} failed`;
@@ -319,6 +359,7 @@ async function pollJob(jobId) {
       activityLog.scrollTop = activityLog.scrollHeight;
       if (status.status !== "Running") {
         jobRunning = false;
+        exportJobCsvButton.disabled = false;
         setControlsDisabled(false);
         const finalStatus = status.status === "Failed"
           ? "FAILED"
@@ -331,6 +372,7 @@ async function pollJob(jobId) {
     }
   } catch (error) {
     jobRunning = false;
+    exportJobCsvButton.disabled = !latestJobStatus || latestJobStatus.status === "Running";
     setControlsDisabled(false);
     setJobDisplay("Could not read job status", "ERROR");
     showToast(error.message, true);
