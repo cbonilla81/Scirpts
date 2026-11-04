@@ -16,7 +16,7 @@
         <span>File Archive<small>OPERATIONS CONSOLE</small></span>
       </a>
       <div class="nav-label">WORKSPACE</div>
-      <a class="nav-link active" href="#archive"><span class="nav-dot"></span> Archive files</a>
+      <a class="nav-link active" href="#archive"><span class="nav-dot"></span> Archive folders</a>
       <div class="sidebar-note">
         <span class="status-pulse"></span>
         <div><strong>Private local session</strong><small>Only this computer can connect</small></div>
@@ -26,7 +26,7 @@
 
     <main id="archive">
       <header class="topbar">
-        <div class="breadcrumb">Workspace <span>/</span> Archive files</div>
+        <div class="breadcrumb">Workspace <span>/</span> Archive folders</div>
         <div class="local-badge"><span></span> LOCALHOST ONLY</div>
       </header>
 
@@ -34,7 +34,7 @@
         <div>
           <div class="eyebrow">FILE MANAGEMENT</div>
           <h1>Archive operations</h1>
-          <p>Find aging files or select entire subfolders, review your choices, then preview or archive them.</p>
+          <p>Browse source folders, select the folders to archive, then preview or move their contents.</p>
         </div>
         <div class="heading-mark" aria-hidden="true">⌁</div>
       </section>
@@ -43,77 +43,42 @@
         <section class="panel">
           <div class="panel-heading">
             <div class="step-number">01</div>
-            <div><h2>Locations &amp; criteria</h2><p>Choose the folders and the rules used to find eligible files.</p></div>
+            <div><h2>Archive locations</h2><p>Choose the source tree to browse and its archive destination.</p></div>
           </div>
           <div class="form-grid">
             <label class="field full">
               <span>Source folder <i>Required</i></span>
               <input id="source" name="sourcePath" type="text" placeholder="C:\Data or \\server\share\Data" required autocomplete="off">
-              <small>Files are scanned recursively. Reparse-point folders are not followed.</small>
+              <small>Subfolders are listed recursively. Reparse-point folders are not followed.</small>
             </label>
             <label class="field full">
               <span>Archive destination <i>Required</i></span>
               <input id="destination" name="destinationPath" type="text" placeholder="D:\Archive or \\server\share\Archive" required autocomplete="off">
               <small>The folder structure under the source is preserved at the destination.</small>
             </label>
-            <label class="field">
-              <span>Minimum file age</span>
-              <div class="input-suffix"><input id="age-days" type="number" min="1" max="36500" value="365" required><span>days</span></div>
-            </label>
-            <label class="field">
-              <span>Include extensions <em>Optional</em></span>
-              <input id="include-extensions" type="text" placeholder=".pdf, .docx">
-            </label>
-            <label class="field">
-              <span>Exclude extensions <em>Optional</em></span>
-              <input id="exclude-extensions" type="text" placeholder=".tmp, .lock">
-            </label>
-            <label class="field">
-              <span>Exclude paths <em>Optional</em></span>
-              <input id="exclude-paths" type="text" placeholder="LegalHold; ActiveProjects">
-              <small>Matching path text is excluded. Separate entries with commas or semicolons.</small>
-            </label>
-            <label class="field">
-              <span>Minimum size <em>Optional</em></span>
-              <div class="input-suffix"><input id="min-size" type="number" min="0" step="any" placeholder="0"><span>MB</span></div>
-            </label>
-            <label class="field">
-              <span>Maximum size <em>Optional</em></span>
-              <div class="input-suffix"><input id="max-size" type="number" min="0" step="any" placeholder="No limit"><span>MB</span></div>
-            </label>
           </div>
           <div class="actions">
-            <button id="scan-button" class="button button-secondary" type="button" disabled><span aria-hidden="true">⌕</span> Scan for candidates</button>
-            <span class="inline-note">Both last access and last modified dates must be older than the cutoff.</span>
+            <button id="scan-button" class="button button-secondary" type="button" disabled><span aria-hidden="true">⌕</span> Scan for folders</button>
+            <span class="inline-note">Folder archives include all contents, regardless of file age or type. Files directly in the source root are not included.</span>
           </div>
         </section>
 
         <section class="panel candidates-panel">
           <div class="panel-heading candidate-heading">
             <div class="step-number">02</div>
-            <div><h2>Review files &amp; folders</h2><p id="candidate-summary">Run a scan to see eligible files here.</p></div>
+            <div><h2>Review folders</h2><p id="candidate-summary">Run a scan to list source subfolders.</p></div>
             <div class="candidate-tools">
-              <button id="export-csv" class="button button-secondary" type="button" disabled title="Export all eligible files from the latest scan, not just selected files.">Export CSV</button>
+              <button id="export-csv" class="button button-secondary" type="button" disabled title="Export all subfolders from the latest scan, not just selected folders.">Export folder list</button>
             </div>
           </div>
-          <div class="folder-selection">
-            <label class="field" for="folder-path">
-              <span>Archive an entire subfolder <em>Optional</em></span>
-              <small>Enter a full path under the source folder. All files and subfolders are included, even if they do not match the filters.</small>
-            </label>
-            <div class="folder-entry">
-              <input id="folder-path" type="text" placeholder="C:\Data\OldProject" autocomplete="off">
-              <button id="add-folder" class="button button-secondary" type="button">Add folder</button>
-            </div>
-            <ul id="selected-folders" class="selected-folders" aria-live="polite"></ul>
-          </div>
+          <p class="folder-selection-note">Select folders to archive all files and nested folders inside them. Selecting a parent includes its descendants.</p>
           <div class="table-wrap">
             <table>
-              <thead><tr><th class="check-col"><input id="select-all" type="checkbox" aria-label="Select all eligible files" disabled></th><th>FILE</th><th>LAST MODIFIED (UTC)</th><th class="size-col">SIZE</th></tr></thead>
-              <tbody id="candidate-list"><tr class="empty-row"><td colspan="4">No scan results yet. Set your locations and scan to begin.</td></tr></tbody>
+              <thead><tr><th class="check-col"><input id="select-all" type="checkbox" aria-label="Select all folders" disabled></th><th>FOLDER</th><th>CONTENTS</th><th class="size-col">TOTAL SIZE</th></tr></thead>
+              <tbody id="folder-list"><tr class="empty-row"><td colspan="4">No scan results yet. Set your locations and scan to begin.</td></tr></tbody>
             </table>
           </div>
-          <div class="candidate-footer"><span id="selection-count">0 selected</span><span class="safe-label"><span>✓</span> Nothing moves until you start a job</span></div>
+          <div class="candidate-footer"><span id="selection-count">0 folders selected</span><span class="safe-label"><span>✓</span> Nothing moves until you start a job</span></div>
         </section>
 
         <section class="panel run-panel">
@@ -127,11 +92,11 @@
             <label class="toggle-row"><input id="replace-newer" type="checkbox"><span class="toggle"></span><span><strong>Replace older destination files</strong><small>Replace an existing file only when the source file is newer.</small></span></label>
           </div>
           <div id="live-confirmation" class="confirmation-box" hidden>
-            <label><input id="confirm-live" type="checkbox"><span>I reviewed the dry run and understand that live mode moves selected files and folders out of the source folder.</span></label>
+            <label><input id="confirm-live" type="checkbox"><span>I reviewed the dry run and understand that live mode moves selected folders and all their contents out of the source.</span></label>
           </div>
           <div class="actions run-actions">
             <button id="run-button" class="button button-primary" type="button" disabled><span aria-hidden="true">➜</span> Start dry run</button>
-            <span class="inline-note">Selected files are rechecked against the filters. Files inside selected folders are all included.</span>
+            <span class="inline-note">Selected folders are rechecked before processing; all their contents are included.</span>
           </div>
         </section>
       </form>
@@ -147,7 +112,7 @@
           <button id="export-job-csv" class="button button-secondary" type="button" disabled>Export job output</button>
           <span class="inline-note">Download the latest job summary and activity as CSV.</span>
         </div>
-        <pre id="activity-log" class="activity-log" aria-live="polite">Console ready. Run a scan to review eligible files.</pre>
+        <pre id="activity-log" class="activity-log" aria-live="polite">Console ready. Scan the source folder to review its subfolders.</pre>
       </section>
       <footer class="footer">File Archive Utility <span>•</span> Local browser console <span>•</span> Dry run first</footer>
     </main>

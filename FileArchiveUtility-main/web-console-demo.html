@@ -86,10 +86,10 @@
     td { padding: 9px 12px; border-top: 1px solid #f0f2f5; color: #637087; font-size: 10px; white-space: nowrap; }
     .check-col { width: 38px; padding-left: 19px; }
     .check-col input { accent-color: var(--blue); }
-    .file-cell { max-width: 490px; }
-    .file-cell strong, .file-cell small { display: block; overflow: hidden; text-overflow: ellipsis; }
-    .file-cell strong { color: #314057; font-size: 11px; font-weight: 600; }
-    .file-cell small { margin-top: 3px; color: #929daf; font-size: 9px; }
+    .folder-cell { max-width: 490px; }
+    .folder-cell strong, .folder-cell small { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .folder-cell strong { color: #314057; font-size: 11px; font-weight: 600; }
+    .folder-cell small { margin-top: 3px; color: #929daf; font-size: 9px; }
     .size-col { width: 85px; padding-right: 20px; text-align: right; font-family: Consolas, monospace; }
     .candidate-footer { display: flex; align-items: center; justify-content: space-between; padding: 11px 20px; color: #8691a3; font-size: 10px; }
     .safe-label { display: inline-flex; align-items: center; gap: 5px; color: #618b78; }
@@ -134,7 +134,7 @@
       .panel-heading, .form-grid, .run-options, .folder-selection { padding-right: 14px; padding-left: 14px; }
       .actions { align-items: flex-start; flex-direction: column; padding-right: 14px; padding-left: 14px; }
       .candidate-footer { padding-right: 14px; padding-left: 14px; }
-      .file-cell { max-width: 220px; }
+      .folder-cell { max-width: 220px; }
       .activity-log { margin-right: 14px; margin-left: 14px; }
     }
   </style>
@@ -147,7 +147,7 @@
         <span class="brand-name">File Archive<small>OPERATIONS CONSOLE</small></span>
       </a>
       <div class="nav-label">WORKSPACE</div>
-      <div class="nav-link active"><span class="nav-dot"></span> Archive files</div>
+      <div class="nav-link active"><span class="nav-dot"></span> Archive folders</div>
       <div class="sidebar-note">
         <span class="status-pulse"></span>
         <div><strong>Private local session</strong><small>Only this computer can connect</small></div>
@@ -157,7 +157,7 @@
 
     <main>
       <header class="topbar">
-        <div class="breadcrumb">Workspace <span>/</span> Archive files</div>
+        <div class="breadcrumb">Workspace <span>/</span> Archive folders</div>
         <div class="local-badge"><span></span> LOCALHOST ONLY</div>
       </header>
 
@@ -165,42 +165,37 @@
         <div>
           <div class="eyebrow">FILE MANAGEMENT</div>
           <h1>Archive operations</h1>
-          <p>Find aging files or select entire subfolders, review your choices, then preview or archive them.</p>
+          <p>Browse source folders, select the folders to archive, then preview or move their contents.</p>
         </div>
       </section>
 
       <section class="panel">
         <div class="panel-heading">
           <div class="step-number">01</div>
-          <div><h2>Locations &amp; criteria</h2><p>Choose the folders and rules used to find eligible files.</p></div>
+          <div><h2>Archive locations</h2><p>Choose the source tree to browse and its archive destination.</p></div>
         </div>
         <div class="form-grid">
-          <label class="field full"><span>Source folder <i>Required</i></span><input value="C:\DepartmentData" readonly><small>Files are scanned recursively. Reparse-point folders are not followed.</small></label>
+          <label class="field full"><span>Source folder <i>Required</i></span><input value="C:\DepartmentData" readonly><small>Subfolders are listed recursively. Reparse-point folders are not followed.</small></label>
           <label class="field full"><span>Archive destination <i>Required</i></span><input value="D:\Archive\DepartmentData" readonly><small>The folder structure under the source is preserved at the destination.</small></label>
-          <label class="field"><span>Minimum file age</span><div class="input-suffix"><input value="365" readonly><span>days</span></div></label>
-          <label class="field"><span>Include extensions <em>Optional</em></span><input value=".pdf, .docx, .xlsx" readonly></label>
-          <label class="field"><span>Exclude extensions <em>Optional</em></span><input value=".tmp, .lock" readonly></label>
-          <label class="field"><span>Exclude paths <em>Optional</em></span><input value="LegalHold; ActiveProjects" readonly></label>
-          <label class="field"><span>Minimum size <em>Optional</em></span><div class="input-suffix"><input value="1" readonly><span>MB</span></div></label>
-          <label class="field"><span>Maximum size <em>Optional</em></span><div class="input-suffix"><input value="No limit" readonly></div></label>
         </div>
-        <div class="actions"><button class="button button-secondary" type="button"><span aria-hidden="true">⌕</span> Scan for candidates</button><span class="inline-note">Both last access and last modified dates are older than the cutoff.</span></div>
+        <div class="actions"><button class="button button-secondary" type="button"><span aria-hidden="true">⌕</span> Scan for folders</button><span class="inline-note">Folder archives include all contents, regardless of age or file type. Files directly in the source root are not included.</span></div>
       </section>
 
       <section class="panel">
         <div class="panel-heading candidate-heading">
           <div class="step-number">02</div>
-          <div><h2>Review folders</h2><p>3 folders available</p></div>
+          <div><h2>Review folders</h2><p>4 folders available</p></div>
           <div class="candidate-tools"><button class="button button-secondary" type="button">Export folder list</button></div>
         </div>
-        <p class="folder-selection-note">Select folders to archive all files and subfolders inside them, including items that do not match the file filters.</p>
+        <p class="folder-selection-note">Select folders to archive all files and subfolders inside them. Selecting a parent folder includes its descendants.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th class="check-col"><input id="demo-select-all" type="checkbox" aria-label="Select all folders"></th><th>FOLDER</th><th>CONTENTS</th><th class="size-col">TOTAL SIZE</th></tr></thead>
             <tbody>
-              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select Finance 2022 folder"></td><td class="file-cell"><strong>Finance\2022</strong><small>C:\DepartmentData\Finance\2022</small></td><td>18 files · 2 subfolders</td><td class="size-col">48.2 MB</td></tr>
-              <tr><td class="check-col"><input type="checkbox" aria-label="Select Operations folder"></td><td class="file-cell"><strong>Operations</strong><small>C:\DepartmentData\Operations</small></td><td>7 files · 1 subfolder</td><td class="size-col">1.8 MB</td></tr>
-              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select LegacyPortal folder"></td><td class="file-cell"><strong>Projects\LegacyPortal</strong><small>C:\DepartmentData\Projects\LegacyPortal</small></td><td>42 files · 6 subfolders</td><td class="size-col">312 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select Finance folder"></td><td class="folder-cell"><strong>Finance</strong><small>C:\DepartmentData\Finance</small></td><td>18 files · 3 subfolders</td><td class="size-col">48.2 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" checked disabled aria-label="Finance 2022 folder is included with its parent"></td><td class="folder-cell"><strong>Finance\2022</strong><small>C:\DepartmentData\Finance\2022</small></td><td>18 files · 2 subfolders</td><td class="size-col">48.2 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" aria-label="Select Operations folder"></td><td class="folder-cell"><strong>Operations</strong><small>C:\DepartmentData\Operations</small></td><td>7 files · 1 subfolder</td><td class="size-col">1.8 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select LegacyPortal folder"></td><td class="folder-cell"><strong>Projects\LegacyPortal</strong><small>C:\DepartmentData\Projects\LegacyPortal</small></td><td>42 files · 6 subfolders</td><td class="size-col">312 MB</td></tr>
             </tbody>
           </table>
         </div>

@@ -36,12 +36,13 @@ The localhost web console remains restricted to `localhost` for personal use. Th
 
 ## Web Console Features
 
-- Scan a source folder recursively and review up to 5,000 eligible files.
-- Filter by age, extension, minimum or maximum size, and excluded path text.
-- Select individual candidates or use the header checkbox to select all candidates shown in the scan.
-- Export every eligible file in the latest scan (up to 5,000) to CSV, including its selection state.
+- Scan a source tree recursively and review subfolders with recursive file counts, nested-folder counts, and total sizes.
+- Select folders only, or use the header checkbox to select all folders in the source tree.
+- Selecting a parent folder includes all nested subfolders; overlapping selections are prevented.
+- Export every folder in the latest scan to CSV, including contents, size, and selection state.
 - Export the completed job summary and activity log to CSV from the Job Activity panel.
-- Select a subfolder to archive its entire contents, including files that do not match the scan filters.
+- Archive all files in selected folders, regardless of age or file type.
+- Files directly under the source root are not included; select one or more subfolders to archive.
 - Preview the operation in Dry Run mode before moving files.
 - Preserve the relative directory structure in the archive destination.
 - Optionally remove empty source subfolders after successful moves.
@@ -54,7 +55,7 @@ The localhost web console remains restricted to `localhost` for personal use. Th
 
 The hosted console is a separate application for shared use on Windows Server with IIS. It uses Microsoft Entra ID for sign-in and does not store user passwords. Console pages and APIs require an authenticated session, and state-changing requests require an anti-forgery token. Each user can see their own current job status; only one archive job can run at a time across a server instance.
 
-The hosted console shares the archive interface and file-processing service with the localhost web console. It supports selecting a subfolder under the configured source to archive all of its contents, including files that do not match the scan filters. The source root cannot be selected, reparse-point folders are skipped, and existing destination files follow the configured skip/replace behavior. Review a Dry Run before starting a live archive. File operations run as the IIS application-pool identity.
+The hosted console shares the folder-selection interface and file-processing service with the localhost web console. It lists subfolders recursively with recursive file counts, nested-folder counts, and total sizes. It supports selecting a subfolder under the configured source to archive all of its contents, regardless of age or file type. Selecting a parent folder includes all nested subfolders; overlapping selections are prevented. Files directly under the source root are not included, and the source root itself cannot be selected. Reparse-point folders are skipped, and existing destination files follow the configured skip/replace behavior. Review a Dry Run before starting a live archive. File operations run as the IIS application-pool identity.
 
 #### Before you begin
 
@@ -144,7 +145,7 @@ The script publishes the separate `FolderArchiveWebHosted` project for Windows x
 1. From an allowed user account on a client computer, browse to `https://archive.example.com/`. The app should send the browser to the organization's Microsoft sign-in page.
 2. Sign in with an assigned account. The browser should return to the hosted console and show the signed-in account. Use **Sign out** to test logout.
 3. Test an unassigned account. Access should be denied by Entra or the application; if it is allowed, stop deployment and correct the Enterprise Application assignment settings.
-4. Enter a small, approved test source folder and a separate test destination available to the app-pool identity. Run a scan and verify the candidates.
+4. Enter a small, approved test source folder and a separate test destination available to the app-pool identity. Scan the source and verify the recursive folder list, file counts, subfolder counts, and sizes.
 5. Leave **Dry run** enabled, run it, and confirm the activity log only reports the expected preview. Then test a live move only with disposable test files and explicit operational approval.
 6. Confirm the app cannot read or write paths outside the locations granted to its service identity. Review the IIS service account's actual local and share permissions rather than relying solely on UI behavior.
 7. Confirm another assigned user cannot see the first user's job status. The server permits only one active job at a time.
@@ -160,13 +161,13 @@ The script publishes the separate `FolderArchiveWebHosted` project for Windows x
 - For multiple IIS instances, configure a shared ASP.NET Core Data Protection key ring and the same application name on every instance; otherwise authentication cookies may not be readable on another node. Coordinate jobs across nodes separately—the current in-memory single-job guard is per process, not distributed.
 - Keep Windows, IIS, the .NET Hosting Bundle, and the Entra client secret maintained under your organization's patching and rotation policies.
 
-The hosted console requires both a file's last access time and last modified time to be older than the selected age threshold. Reparse-point folders are skipped. Job activity and scanned candidate lists can be downloaded as CSV, but those exports are not retained as persistent reports. Unlike the PowerShell GUI, it does not currently provide folder compression.
+The hosted web console lists folders recursively and archives every file within selected folders, regardless of age or file type. Files directly under the source root are not included. Reparse-point folders are skipped. Folder lists and job activity can be downloaded as CSV, but those exports are not retained as persistent reports. Unlike the PowerShell GUI, it does not currently provide folder compression.
 
-The web console requires both the file's last access time and last modified time to be older than the selected age threshold. Reparse-point folders are skipped. Job activity and scanned candidate lists can be downloaded as CSV, but those exports are not retained as persistent reports. Unlike the PowerShell GUI, the web console does not currently provide folder compression.
+The localhost web console lists folders recursively and archives every file within selected folders, regardless of age or file type. Files directly under the source root are not included. Reparse-point folders are skipped. Folder lists and job activity can be downloaded as CSV, but those exports are not retained as persistent reports. Unlike the PowerShell GUI, the web console does not currently provide folder compression.
 
 ### Web Console Demo
 
-To preview the interface without starting the web server, open [web-console-demo.html](./web-console-demo.html) in a browser from the project directory. The demo displays sample paths, candidate files, and dry-run activity; it does not scan folders or move files. Keep the adjacent `FolderArchiveWebConsole` directory in place so the demo can load the RS&H logo.
+To preview the interface without starting the web server, open [web-console-demo.html](./web-console-demo.html) in a browser from the project directory. The demo displays sample folders, contents, and dry-run activity; it does not scan folders or move files. Keep the adjacent `FolderArchiveWebConsole` directory in place so the demo can load the RS&H logo.
 
 To preview the hosted sign-in page and then the hosted console layout, open [hosted-web-console-demo.html](./hosted-web-console-demo.html). Select **Continue to hosted console demo** to view the sample console, or **Back to sign-in** to return to the login screen. This walkthrough is static: sign-in is simulated and no files are scanned or moved. Keep `web-console-demo.html` and the `FolderArchiveWebConsole` directory beside the hosted demo so its embedded console and logo load correctly.
 
@@ -226,7 +227,7 @@ The web console is an additional version; it does not replace the existing Power
 
 The console starts a local web server at `http://localhost:5187` and attempts to open the browser. Keep the PowerShell window open while using the console; press **Ctrl+C** to stop it.
 
-The web console supports recursive file scans, age and file filters, candidate selection, and selecting a subfolder to archive all of its contents regardless of those filters. Use the header checkbox to select or clear all eligible files in the latest scan. **Export CSV** in the candidate panel downloads every eligible file returned by that scan (up to 5,000), whether selected or not, with its path, name, last-modified timestamp, size, and selection state. Folder selections are not included in this file-candidate CSV. After a job completes, **Export job output** in the Job Activity panel downloads a CSV with the final status, processed/moved/skipped/failed counts, and each activity entry. These downloads are not retained as persistent reports. Folder selections must be below the configured source folder; the source root itself cannot be selected. Dry runs, live moves, optional removal of empty source folders, and replacing an existing destination file only when the source is newer are supported. Existing destination files that are not replaced are skipped. Both last access and last write timestamps must be older than the age threshold for individually selected files. Reparse-point folders are skipped. The browser console does not currently offer folder compression; live job activity is shown in the console while it is running.
+The web console scans the source tree recursively and lists each subfolder with the number of files and descendant folders and its total size. Select folders only; selecting a parent includes its nested subfolders. The header checkbox selects all top-level folders, which covers all subfolders. **Export folder list** downloads every listed subfolder with its path, recursive contents, total size, and selection state. Folder archiving includes all files regardless of age or file type. Files directly under the source root are not included, and the source root itself cannot be selected. After a job completes, **Export job output** in the Job Activity panel downloads a CSV with the final status, processed/moved/skipped/failed counts, and each activity entry. These downloads are not retained as persistent reports. Dry runs, live moves, optional removal of empty source folders, and replacing an existing destination file only when the source is newer are supported. Existing destination files that are not replaced are skipped. Reparse-point folders are skipped. The browser console does not currently offer folder compression; live job activity is shown in the console while it is running.
 
 Use the separate [hosted web console](#hosted-web-console) for shared, authenticated access; the localhost edition remains limited to the computer running it.
 

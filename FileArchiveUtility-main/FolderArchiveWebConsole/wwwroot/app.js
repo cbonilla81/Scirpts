@@ -3,13 +3,10 @@ const scanButton = document.querySelector("#scan-button");
 const runButton = document.querySelector("#run-button");
 const selectAllInput = document.querySelector("#select-all");
 const exportCsvButton = document.querySelector("#export-csv");
-const candidateList = document.querySelector("#candidate-list");
+const folderList = document.querySelector("#folder-list");
 const candidateSummary = document.querySelector("#candidate-summary");
 const selectionCount = document.querySelector("#selection-count");
 const exportJobCsvButton = document.querySelector("#export-job-csv");
-const folderPathInput = document.querySelector("#folder-path");
-const addFolderButton = document.querySelector("#add-folder");
-const selectedFoldersList = document.querySelector("#selected-folders");
 const dryRunInput = document.querySelector("#dry-run");
 const liveConfirmation = document.querySelector("#live-confirmation");
 const confirmLive = document.querySelector("#confirm-live");
@@ -23,7 +20,7 @@ const toast = document.querySelector("#toast");
 
 let sessionToken = "";
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? "";
-let candidates = [];
+let folders = [];
 let selectedFolders = [];
 let latestJobStatus = null;
 let jobRunning = false;
@@ -47,19 +44,9 @@ async function initialize() {
 }
 
 function requestOptions() {
-  const optionalNumber = (selector) => {
-    const value = document.querySelector(selector).value.trim();
-    return value === "" ? null : Number(value);
-  };
   return {
     sourcePath: document.querySelector("#source").value.trim(),
-    destinationPath: document.querySelector("#destination").value.trim(),
-    ageDays: Number(document.querySelector("#age-days").value),
-    includeExtensions: document.querySelector("#include-extensions").value,
-    excludeExtensions: document.querySelector("#exclude-extensions").value,
-    excludePaths: document.querySelector("#exclude-paths").value,
-    minSizeMb: optionalNumber("#min-size"),
-    maxSizeMb: optionalNumber("#max-size")
+    destinationPath: document.querySelector("#destination").value.trim()
   };
 }
 
@@ -89,16 +76,18 @@ scanButton.addEventListener("click", async () => {
   selectAllInput.disabled = true;
   exportCsvButton.disabled = true;
   scanButton.classList.add("loading");
-  candidateSummary.textContent = "Scanning source folder…";
+  candidateSummary.textContent = "Scanning source folders…";
   try {
     const result = await api("/api/scan", requestOptions());
-    candidates = result.candidates;
-    renderCandidates(result);
-    setActivity(`Scan complete. ${result.candidateCount.toLocaleString()} eligible file(s) found.`);
+    folders = result.folders;
+    selectedFolders = [];
+    renderFolders(result);
+    setActivity(`Scan complete. ${folders.length.toLocaleString()} subfolder(s) found.`);
     setJobDisplay("Scan complete", "READY");
   } catch (error) {
-    candidates = [];
-    renderCandidates();
+    folders = [];
+    selectedFolders = [];
+    renderFolders();
     candidateSummary.textContent = "The scan could not be completed.";
     showToast(error.message, true);
   } finally {
@@ -107,55 +96,55 @@ scanButton.addEventListener("click", async () => {
   }
 });
 
-function renderCandidates(result) {
-  candidateList.replaceChildren();
-  if (!result || result.candidates.length === 0) {
+function renderFolders(result) {
+  folderList.replaceChildren();
+  if (!result || result.folders.length === 0) {
     const row = document.createElement("tr");
     row.className = "empty-row";
     const cell = document.createElement("td");
     cell.colSpan = 4;
-    cell.textContent = result ? "No files match the selected criteria." : "No scan results yet. Set your locations and scan to begin.";
+    cell.textContent = result ? "No subfolders were found under the source folder." : "No scan results yet. Set your locations and scan to begin.";
     row.append(cell);
-    candidateList.append(row);
+    folderList.append(row);
   } else {
     const fragment = document.createDocumentFragment();
-    for (const candidate of result.candidates) {
+    for (const folder of result.folders) {
       const row = document.createElement("tr");
       const checkCell = document.createElement("td");
       checkCell.className = "check-col";
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
-      checkbox.className = "candidate-check";
-      checkbox.value = candidate.path;
-      checkbox.setAttribute("aria-label", `Select ${candidate.path}`);
-      checkbox.addEventListener("change", updateSelection);
+      checkbox.className = "folder-check";
+      checkbox.value = folder.path;
+      checkbox.setAttribute("aria-label", `Select folder ${folder.path}`);
+      checkbox.addEventListener("change", () => updateFolderSelection(folder.path, checkbox.checked));
       checkCell.append(checkbox);
 
-      const fileCell = document.createElement("td");
-      fileCell.className = "file-cell";
-      const fileName = document.createElement("strong");
-      fileName.textContent = candidate.name;
-      const filePath = document.createElement("small");
-      filePath.textContent = candidate.path;
-      fileCell.append(fileName, filePath);
+      const folderCell = document.createElement("td");
+      folderCell.className = "folder-cell";
+      const folderName = document.createElement("strong");
+      folderName.textContent = relativeFolderPath(folder.path);
+      const folderPath = document.createElement("small");
+      folderPath.textContent = folder.path;
+      folderCell.append(folderName, folderPath);
 
-      const modifiedCell = document.createElement("td");
-      modifiedCell.textContent = new Date(candidate.lastWriteTimeUtc).toISOString().replace("T", " ").replace("Z", "");
+      const contentsCell = document.createElement("td");
+      contentsCell.textContent = `${folder.fileCount.toLocaleString()} file(s) · ${folder.subfolderCount.toLocaleString()} subfolder(s)`;
       const sizeCell = document.createElement("td");
       sizeCell.className = "size-col";
-      sizeCell.textContent = formatSize(candidate.sizeBytes);
-      row.append(checkCell, fileCell, modifiedCell, sizeCell);
+      sizeCell.textContent = formatSize(folder.sizeBytes);
+      row.append(checkCell, folderCell, contentsCell, sizeCell);
       fragment.append(row);
     }
-    candidateList.append(fragment);
+    folderList.append(fragment);
   }
 
-  const note = result?.truncated ? ` First ${result.candidateCount.toLocaleString()} shown; scan limit reached.` : "";
   candidateSummary.textContent = result
-    ? `${result.candidateCount.toLocaleString()} eligible file(s)${note}`
-    : "Run a scan to see eligible files here.";
-  selectAllInput.disabled = !result || result.candidates.length === 0 || jobRunning;
-  exportCsvButton.disabled = !result || result.candidates.length === 0 || jobRunning;
+    ? `${result.folders.length.toLocaleString()} subfolder(s) found recursively`
+    : "Run a scan to list source subfolders.";
+  selectAllInput.disabled = !result || result.folders.length === 0 || jobRunning;
+  exportCsvButton.disabled = !result || result.folders.length === 0 || jobRunning;
+  synchronizeFolderChecks();
   updateSelection();
 }
 
@@ -171,69 +160,65 @@ function formatSize(bytes) {
   return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`;
 }
 
-function selectedPaths() {
-  return [...document.querySelectorAll(".candidate-check:checked")].map((checkbox) => checkbox.value);
+function normalizedPath(path) {
+  return path.replaceAll("/", "\\").replace(/[\\]+$/, "").toLowerCase();
+}
+
+function isWithinFolder(path, parent) {
+  const normalizedPathValue = normalizedPath(path);
+  const normalizedParent = normalizedPath(parent);
+  return normalizedPathValue === normalizedParent || normalizedPathValue.startsWith(`${normalizedParent}\\`);
+}
+
+function isFolderCovered(path) {
+  return selectedFolders.some((selected) => isWithinFolder(path, selected));
+}
+
+function relativeFolderPath(path) {
+  const source = document.querySelector("#source").value.trim().replace(/[\\]+$/, "");
+  return path.slice(source.length).replace(/^[\\/]+/, "");
+}
+
+function synchronizeFolderChecks() {
+  const checks = [...document.querySelectorAll(".folder-check")];
+  for (const checkbox of checks) {
+    const explicitlySelected = selectedFolders.some((path) => normalizedPath(path) === normalizedPath(checkbox.value));
+    checkbox.checked = isFolderCovered(checkbox.value);
+    checkbox.disabled = jobRunning || (checkbox.checked && !explicitlySelected);
+  }
+
+  const selectedCount = checks.filter((checkbox) => checkbox.checked).length;
+  selectAllInput.checked = checks.length > 0 && selectedCount === checks.length;
+  selectAllInput.indeterminate = selectedCount > 0 && selectedCount < checks.length;
+}
+
+function updateFolderSelection(path, checked) {
+  if (checked) {
+    if (!selectedFolders.some((selected) => isWithinFolder(path, selected))) {
+      selectedFolders = selectedFolders.filter((selected) => !isWithinFolder(selected, path));
+      selectedFolders.push(path);
+    }
+  } else {
+    selectedFolders = selectedFolders.filter((selected) => normalizedPath(selected) !== normalizedPath(path));
+  }
+  synchronizeFolderChecks();
+  updateSelection();
 }
 
 function updateSelection() {
-  const selectedFileCount = selectedPaths().length;
-  const selectedCount = selectedFileCount + selectedFolders.length;
-  selectionCount.textContent = `${selectedFileCount.toLocaleString()} file(s), ${selectedFolders.length.toLocaleString()} folder(s) selected`;
-  runButton.disabled = selectedCount === 0 || jobRunning || (!dryRunInput.checked && !confirmLive.checked);
-
-  const allChecks = [...document.querySelectorAll(".candidate-check")];
-  selectAllInput.checked = allChecks.length > 0 && selectedFileCount === allChecks.length;
-  selectAllInput.indeterminate = selectedFileCount > 0 && selectedFileCount < allChecks.length;
+  selectionCount.textContent = `${selectedFolders.length.toLocaleString()} folder(s) selected`;
+  runButton.disabled = selectedFolders.length === 0 || jobRunning || (!dryRunInput.checked && !confirmLive.checked);
 }
-
-function renderSelectedFolders() {
-  selectedFoldersList.replaceChildren();
-  for (const folder of selectedFolders) {
-    const item = document.createElement("li");
-    const path = document.createElement("span");
-    path.textContent = folder;
-    const removeButton = document.createElement("button");
-    removeButton.type = "button";
-    removeButton.className = "text-button";
-    removeButton.textContent = "Remove";
-    removeButton.setAttribute("aria-label", `Remove ${folder}`);
-    removeButton.disabled = jobRunning;
-    removeButton.addEventListener("click", () => {
-      selectedFolders = selectedFolders.filter((selected) => selected !== folder);
-      renderSelectedFolders();
-      updateSelection();
-    });
-    item.append(path, removeButton);
-    selectedFoldersList.append(item);
-  }
-}
-
-addFolderButton.addEventListener("click", () => {
-  const folder = folderPathInput.value.trim();
-  if (!folder) {
-    showToast("Enter the full path of a subfolder under the source folder.", true);
-    return;
-  }
-  if (selectedFolders.some((selected) => selected.toLowerCase() === folder.toLowerCase())) {
-    showToast("That folder is already selected.", true);
-    return;
-  }
-  selectedFolders.push(folder);
-  folderPathInput.value = "";
-  renderSelectedFolders();
-  updateSelection();
-});
-
-folderPathInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    addFolderButton.click();
-  }
-});
 
 selectAllInput.addEventListener("change", () => {
-  const checks = [...document.querySelectorAll(".candidate-check")];
-  checks.forEach((checkbox) => { checkbox.checked = selectAllInput.checked; });
+  if (selectAllInput.checked) {
+    selectedFolders = folders
+      .filter((folder) => !relativeFolderPath(folder.path).replaceAll("/", "\\").includes("\\"))
+      .map((folder) => folder.path);
+  } else {
+    selectedFolders = [];
+  }
+  synchronizeFolderChecks();
   updateSelection();
 });
 
@@ -256,20 +241,19 @@ function downloadCsv(filename, rows) {
 }
 
 exportCsvButton.addEventListener("click", () => {
-  if (candidates.length === 0 || jobRunning) return;
-
-  const selected = new Set(selectedPaths());
+  if (folders.length === 0 || jobRunning) return;
   const rows = [
-    ["Path", "Name", "Last Modified (UTC)", "Size (bytes)", "Selected"],
-    ...candidates.map((candidate) => [
-      candidate.path,
-      candidate.name,
-      new Date(candidate.lastWriteTimeUtc).toISOString(),
-      candidate.sizeBytes,
-      selected.has(candidate.path) ? "Yes" : "No"
+    ["Path", "Folder", "Files", "Subfolders", "Total Size (bytes)", "Selected"],
+    ...folders.map((folder) => [
+      folder.path,
+      relativeFolderPath(folder.path),
+      folder.fileCount,
+      folder.subfolderCount,
+      folder.sizeBytes,
+      isFolderCovered(folder.path) ? "Yes" : "No"
     ])
   ];
-  downloadCsv("archive-candidates.csv", rows);
+  downloadCsv("archive-folders.csv", rows);
 });
 
 exportJobCsvButton.addEventListener("click", () => {
@@ -314,13 +298,12 @@ dryRunInput.addEventListener("change", () => {
 confirmLive.addEventListener("change", updateSelection);
 
 runButton.addEventListener("click", async () => {
-  const paths = selectedPaths();
-  if ((paths.length === 0 && selectedFolders.length === 0) || jobRunning || !form.reportValidity()) return;
-  if (!dryRunInput.checked && !confirm("This will move selected files and entire selected folders from the source folder. Continue?")) return;
+  if (selectedFolders.length === 0 || jobRunning || !form.reportValidity()) return;
+  if (!dryRunInput.checked && !confirm("This will move the selected folders and all their contents from the source folder. Continue?")) return;
 
   const request = {
     ...requestOptions(),
-    selectedPaths: paths,
+    selectedPaths: [],
     selectedFolders,
     dryRun: dryRunInput.checked,
     removeEmptyFolders: document.querySelector("#remove-empty").checked,
@@ -381,15 +364,11 @@ async function pollJob(jobId) {
 
 function setControlsDisabled(disabled) {
   scanButton.disabled = disabled;
-  runButton.disabled = disabled ||
-    (selectedPaths().length === 0 && selectedFolders.length === 0) ||
-    (!dryRunInput.checked && !confirmLive.checked);
-  selectAllInput.disabled = disabled || candidates.length === 0;
-  exportCsvButton.disabled = disabled || candidates.length === 0;
+  runButton.disabled = disabled || selectedFolders.length === 0 || (!dryRunInput.checked && !confirmLive.checked);
+  selectAllInput.disabled = disabled || folders.length === 0;
+  exportCsvButton.disabled = disabled || folders.length === 0;
   document.querySelectorAll("#archive-form input").forEach((input) => { input.disabled = disabled; });
-  document.querySelectorAll(".candidate-check").forEach((checkbox) => { checkbox.disabled = disabled; });
-  addFolderButton.disabled = disabled;
-  renderSelectedFolders();
+  synchronizeFolderChecks();
 }
 
 function setJobDisplay(title, status) {

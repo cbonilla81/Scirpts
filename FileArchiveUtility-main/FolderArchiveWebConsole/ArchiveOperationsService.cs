@@ -30,7 +30,10 @@ public sealed record ScanResult(
     int AgeDays,
     int CandidateCount,
     bool Truncated,
-    Candidate[] Candidates);
+    Candidate[] Candidates,
+    FolderCandidate[] Folders);
+
+public sealed record FolderCandidate(string Path, string Name, int FileCount, int SubfolderCount, long SizeBytes);
 
 public sealed class ArchiveOperationsService
 {
@@ -51,16 +54,43 @@ public sealed class ArchiveOperationsService
             AttributesToSkip = FileAttributes.ReparsePoint
         };
 
+        var folderStats = new Dictionary<string, (int FileCount, int SubfolderCount, long SizeBytes)>(StringComparer.OrdinalIgnoreCase);
+        var directories = Directory.EnumerateDirectories(options.SourcePath, "*", enumerationOptions)
+            .Select(Path.GetFullPath)
+            .ToArray();
+        foreach (var directory in directories)
+            folderStats.TryAdd(directory, (0, 0, 0));
+
+        foreach (var directory in directories)
+        {
+            var parent = Path.GetDirectoryName(directory);
+            while (!string.IsNullOrEmpty(parent) && folderStats.TryGetValue(parent, out var stats))
+            {
+                folderStats[parent] = (stats.FileCount, checked(stats.SubfolderCount + 1), stats.SizeBytes);
+                parent = Path.GetDirectoryName(parent);
+            }
+        }
+
         foreach (var path in Directory.EnumerateFiles(options.SourcePath, "*", enumerationOptions))
         {
             var file = new FileInfo(path);
-            if (!file.Exists || !Matches(file, thresholdUtc, options))
+            if (!file.Exists)
+                continue;
+
+            var parent = Path.GetDirectoryName(file.FullName);
+            while (!string.IsNullOrEmpty(parent) && folderStats.TryGetValue(parent, out var stats))
+            {
+                folderStats[parent] = (checked(stats.FileCount + 1), stats.SubfolderCount, checked(stats.SizeBytes + file.Length));
+                parent = Path.GetDirectoryName(parent);
+            }
+
+            if (!Matches(file, thresholdUtc, options))
                 continue;
 
             if (candidates.Count == CandidateLimit)
             {
                 truncated = true;
-                break;
+                continue;
             }
 
             candidates.Add(new Candidate(file.FullName, file.Name, file.Length, file.LastWriteTimeUtc));
@@ -72,7 +102,16 @@ public sealed class ArchiveOperationsService
             options.AgeDays,
             candidates.Count,
             truncated,
-            candidates.ToArray());
+            candidates.ToArray(),
+            folderStats
+                .Select(pair => new FolderCandidate(
+                    pair.Key,
+                    Path.GetFileName(pair.Key),
+                    pair.Value.FileCount,
+                    pair.Value.SubfolderCount,
+                    pair.Value.SizeBytes))
+                .OrderBy(folder => Path.GetRelativePath(options.SourcePath, folder.Path), StringComparer.OrdinalIgnoreCase)
+                .ToArray());
     }
 
     public ValidatedOptions Validate(ScanRequest request)

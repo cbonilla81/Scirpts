@@ -73,19 +73,9 @@ main { max-width: 1440px; margin-left: 248px; padding: 0 48px 25px; }
 .inline-note { color: #949eae; font-size: 10px; }
 .candidate-heading { padding-bottom: 14px; }
 .candidate-tools { margin-left: auto; }
+.folder-selection-note { color: #929daf; font-size: 10px; line-height: 1.5; margin: 0; padding: 0 21px 13px; }
 .text-button { border: 0; background: transparent; color: #4269cc; cursor: pointer; font-size: 10px; font-weight: 700; }
 .text-button:disabled { color: #b2bbc8; cursor: default; }
-.folder-selection { padding: 0 21px 14px; }
-.folder-selection .field small { line-height: 1.5; }
-.folder-entry { display: flex; gap: 8px; margin-top: 8px; }
-.folder-entry input { flex: 1; min-width: 0; height: 36px; border: 1px solid #dfe4eb; border-radius: 5px; background: #fff; color: var(--ink); outline: none; padding: 0 10px; font-size: 12px; }
-.folder-entry input:focus { border-color: #7494ed; box-shadow: 0 0 0 3px #3366e814; }
-.folder-entry input::placeholder { color: #adb6c3; }
-.selected-folders { list-style: none; margin: 0; padding: 0; }
-.selected-folders:not(:empty) { margin-top: 8px; }
-.selected-folders li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #f0f2f5; padding: 7px 0; color: #637087; font-size: 10px; }
-.selected-folders li span { min-width: 0; overflow-wrap: anywhere; }
-.selected-folders li .text-button { flex: 0 0 auto; }
 .table-wrap { overflow: auto; max-height: 350px; border-top: 1px solid #edf0f4; }
 table { border-collapse: collapse; width: 100%; text-align: left; }
 thead { position: sticky; top: 0; z-index: 1; background: #f8f9fb; }
@@ -94,10 +84,10 @@ td { padding: 9px 12px; border-top: 1px solid #f0f2f5; color: #637087; font-size
 .check-col { width: 38px; padding-left: 19px; }
 .check-col input { accent-color: var(--blue); cursor: pointer; }
 .check-col input:disabled { cursor: not-allowed; }
-.file-cell { max-width: 490px; }
-.file-cell strong, .file-cell small { display: block; overflow: hidden; text-overflow: ellipsis; }
-.file-cell strong { color: #314057; font-size: 11px; font-weight: 600; }
-.file-cell small { color: #929daf; font-size: 9px; margin-top: 3px; }
+.folder-cell { max-width: 490px; }
+.folder-cell strong, .folder-cell small { display: block; overflow: hidden; text-overflow: ellipsis; }
+.folder-cell strong { color: #314057; font-size: 11px; font-weight: 600; }
+.folder-cell small { color: #929daf; font-size: 9px; margin-top: 3px; }
 .size-col { width: 85px; text-align: right; padding-right: 20px; font-family: "DM Mono", monospace; }
 .empty-row td { color: #9ba5b3; text-align: center; padding: 27px 10px; }
 .candidate-footer { display: flex; justify-content: space-between; align-items: center; padding: 11px 20px; color: #8691a3; font-size: 10px; }
@@ -156,12 +146,12 @@ td { padding: 9px 12px; border-top: 1px solid #f0f2f5; color: #637087; font-size
   .form-grid { grid-template-columns: 1fr; }
   .field.full { grid-column: auto; }
   .panel-heading { padding-left: 14px; padding-right: 14px; }
-  .form-grid, .run-options, .folder-selection { padding-left: 14px; padding-right: 14px; }
+  .form-grid, .run-options { padding-left: 14px; padding-right: 14px; }
   .actions { padding-left: 14px; padding-right: 14px; align-items: flex-start; flex-direction: column; }
   .candidate-footer { padding-left: 14px; padding-right: 14px; }
   .candidate-footer .safe-label { text-align: right; }
   .inline-note { line-height: 1.5; }
-  .file-cell { max-width: 220px; }
+  .folder-cell { max-width: 220px; }
   .activity-log { margin-left: 14px; margin-right: 14px; }
   .progress-track, .job-stats { margin-left: 14px; margin-right: 14px; padding-left: 0; padding-right: 0; }
   .job-export-row { margin-left: 14px; margin-right: 14px; align-items: flex-start; flex-direction: column; }
