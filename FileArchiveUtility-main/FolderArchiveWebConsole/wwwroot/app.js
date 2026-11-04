@@ -1,7 +1,8 @@
 const form = document.querySelector("#archive-form");
 const scanButton = document.querySelector("#scan-button");
 const runButton = document.querySelector("#run-button");
-const selectAllButton = document.querySelector("#select-all");
+const selectAllInput = document.querySelector("#select-all");
+const exportCsvButton = document.querySelector("#export-csv");
 const candidateList = document.querySelector("#candidate-list");
 const candidateSummary = document.querySelector("#candidate-summary");
 const selectionCount = document.querySelector("#selection-count");
@@ -83,6 +84,8 @@ scanButton.addEventListener("click", async () => {
   if (!form.reportValidity() || jobRunning) return;
   scanButton.disabled = true;
   runButton.disabled = true;
+  selectAllInput.disabled = true;
+  exportCsvButton.disabled = true;
   scanButton.classList.add("loading");
   candidateSummary.textContent = "Scanning source folder…";
   try {
@@ -149,7 +152,8 @@ function renderCandidates(result) {
   candidateSummary.textContent = result
     ? `${result.candidateCount.toLocaleString()} eligible file(s)${note}`
     : "Run a scan to see eligible files here.";
-  selectAllButton.disabled = !result || result.candidates.length === 0 || jobRunning;
+  selectAllInput.disabled = !result || result.candidates.length === 0 || jobRunning;
+  exportCsvButton.disabled = !result || result.candidates.length === 0 || jobRunning;
   updateSelection();
 }
 
@@ -174,6 +178,10 @@ function updateSelection() {
   const selectedCount = selectedFileCount + selectedFolders.length;
   selectionCount.textContent = `${selectedFileCount.toLocaleString()} file(s), ${selectedFolders.length.toLocaleString()} folder(s) selected`;
   runButton.disabled = selectedCount === 0 || jobRunning || (!dryRunInput.checked && !confirmLive.checked);
+
+  const allChecks = [...document.querySelectorAll(".candidate-check")];
+  selectAllInput.checked = allChecks.length > 0 && selectedFileCount === allChecks.length;
+  selectAllInput.indeterminate = selectedFileCount > 0 && selectedFileCount < allChecks.length;
 }
 
 function renderSelectedFolders() {
@@ -221,12 +229,41 @@ folderPathInput.addEventListener("keydown", (event) => {
   }
 });
 
-selectAllButton.addEventListener("click", () => {
+selectAllInput.addEventListener("change", () => {
   const checks = [...document.querySelectorAll(".candidate-check")];
-  const select = checks.some((checkbox) => !checkbox.checked);
-  checks.forEach((checkbox) => { checkbox.checked = select; });
-  selectAllButton.textContent = select ? "Clear selection" : "Select all";
+  checks.forEach((checkbox) => { checkbox.checked = selectAllInput.checked; });
   updateSelection();
+});
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  const safeText = /^[\t\r\n ]*[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${safeText.replaceAll('"', '""')}"`;
+}
+
+exportCsvButton.addEventListener("click", () => {
+  if (candidates.length === 0 || jobRunning) return;
+
+  const selected = new Set(selectedPaths());
+  const rows = [
+    ["Path", "Name", "Last Modified (UTC)", "Size (bytes)", "Selected"],
+    ...candidates.map((candidate) => [
+      candidate.path,
+      candidate.name,
+      new Date(candidate.lastWriteTimeUtc).toISOString(),
+      candidate.sizeBytes,
+      selected.has(candidate.path) ? "Yes" : "No"
+    ])
+  ];
+  const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "archive-candidates.csv";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 });
 
 dryRunInput.addEventListener("change", () => {
@@ -305,7 +342,8 @@ function setControlsDisabled(disabled) {
   runButton.disabled = disabled ||
     (selectedPaths().length === 0 && selectedFolders.length === 0) ||
     (!dryRunInput.checked && !confirmLive.checked);
-  selectAllButton.disabled = disabled || candidates.length === 0;
+  selectAllInput.disabled = disabled || candidates.length === 0;
+  exportCsvButton.disabled = disabled || candidates.length === 0;
   document.querySelectorAll("#archive-form input").forEach((input) => { input.disabled = disabled; });
   document.querySelectorAll(".candidate-check").forEach((checkbox) => { checkbox.disabled = disabled; });
   addFolderButton.disabled = disabled;

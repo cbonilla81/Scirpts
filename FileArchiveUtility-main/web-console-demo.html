@@ -76,6 +76,7 @@
     .button span { margin-right: 5px; font-size: 15px; vertical-align: -1px; }
     .inline-note { color: #949eae; font-size: 10px; }
     .candidate-heading { padding-bottom: 14px; }
+    .candidate-tools { margin-left: auto; }
     .text-button { margin-left: auto; border: 0; background: transparent; color: #4269cc; font-size: 10px; font-weight: 700; }
     .folder-selection { padding: 0 21px 14px; }
     .folder-selection .field small { line-height: 1.5; }
@@ -197,7 +198,7 @@
         <div class="panel-heading candidate-heading">
           <div class="step-number">02</div>
           <div><h2>Review files &amp; folders</h2><p>3 eligible files</p></div>
-          <button class="text-button" type="button">Select all</button>
+          <div class="candidate-tools"><button class="button button-secondary" type="button">Export CSV</button></div>
         </div>
         <div class="folder-selection">
           <label class="field" for="folder-path">
@@ -214,7 +215,7 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th class="check-col">SELECT</th><th>FILE</th><th>LAST MODIFIED (UTC)</th><th class="size-col">SIZE</th></tr></thead>
+            <thead><tr><th class="check-col"><input id="demo-select-all" type="checkbox" aria-label="Select all eligible files"></th><th>FILE</th><th>LAST MODIFIED (UTC)</th><th class="size-col">SIZE</th></tr></thead>
             <tbody>
               <tr><td class="check-col"><input type="checkbox" checked aria-label="Select Annual Report"></td><td class="file-cell"><strong>Annual Report.pdf</strong><small>C:\DepartmentData\Finance\2022\Annual Report.pdf</small></td><td>2022-10-19 14:32:10</td><td class="size-col">2.4 MB</td></tr>
               <tr><td class="check-col"><input type="checkbox" checked aria-label="Select Project Notes"></td><td class="file-cell"><strong>Project Notes.docx</strong><small>C:\DepartmentData\Operations\Project Notes.docx</small></td><td>2023-01-08 09:16:42</td><td class="size-col">840 KB</td></tr>
@@ -251,6 +252,7 @@
   </div>
   <div class="demo-banner"><strong>DEMO PREVIEW</strong> &nbsp; Sample data only — no files will be scanned or moved.</div>
   <script>
+    document.querySelector("#demo-select-all").indeterminate = true;
     if (new URLSearchParams(window.location.search).has("hosted")) {
       document.querySelector(".sidebar-note strong").textContent = "Entra ID authenticated";
       document.querySelector(".sidebar-note small").textContent = "Access managed by your organization";

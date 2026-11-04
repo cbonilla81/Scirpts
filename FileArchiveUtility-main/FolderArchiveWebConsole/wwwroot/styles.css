@@ -72,7 +72,7 @@ main { max-width: 1440px; margin-left: 248px; padding: 0 48px 25px; }
 .button span { font-size: 15px; vertical-align: -1px; margin-right: 5px; }
 .inline-note { color: #949eae; font-size: 10px; }
 .candidate-heading { padding-bottom: 14px; }
-.candidate-heading .text-button { margin-left: auto; }
+.candidate-tools { margin-left: auto; }
 .text-button { border: 0; background: transparent; color: #4269cc; cursor: pointer; font-size: 10px; font-weight: 700; }
 .text-button:disabled { color: #b2bbc8; cursor: default; }
 .folder-selection { padding: 0 21px 14px; }
@@ -93,6 +93,7 @@ th { padding: 10px 12px; color: #8994a5; font: 500 9px "DM Mono", monospace; let
 td { padding: 9px 12px; border-top: 1px solid #f0f2f5; color: #637087; font-size: 10px; white-space: nowrap; }
 .check-col { width: 38px; padding-left: 19px; }
 .check-col input { accent-color: var(--blue); cursor: pointer; }
+.check-col input:disabled { cursor: not-allowed; }
 .file-cell { max-width: 490px; }
 .file-cell strong, .file-cell small { display: block; overflow: hidden; text-overflow: ellipsis; }
 .file-cell strong { color: #314057; font-size: 11px; font-weight: 600; }

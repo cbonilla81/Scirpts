@@ -34,11 +34,12 @@ The localhost web console remains restricted to `localhost` for personal use. Th
 - Prevent use of the same source and destination path.
 - Prevent placing the archive destination inside the source folder.
 
-## Localhost Web Console Features
+## Web Console Features
 
 - Scan a source folder recursively and review up to 5,000 eligible files.
 - Filter by age, extension, minimum or maximum size, and excluded path text.
-- Select individual candidates or all candidates shown in the scan.
+- Select individual candidates or use the header checkbox to select all candidates shown in the scan.
+- Export every eligible file in the latest scan (up to 5,000) to CSV, including its selection state.
 - Select a subfolder to archive its entire contents, including files that do not match the scan filters.
 - Preview the operation in Dry Run mode before moving files.
 - Preserve the relative directory structure in the archive destination.
@@ -46,7 +47,7 @@ The localhost web console remains restricted to `localhost` for personal use. Th
 - Optionally replace an existing destination file only when the source file is newer.
 - View job progress and activity in the browser.
 - Display the RS&H logo in the console navigation.
-- Restrict the web server to the local computer; it does not accept connections from other devices.
+- The localhost edition is restricted to the local computer; it does not accept connections from other devices.
 
 ### Hosted Web Console
 
@@ -224,7 +225,7 @@ The web console is an additional version; it does not replace the existing Power
 
 The console starts a local web server at `http://localhost:5187` and attempts to open the browser. Keep the PowerShell window open while using the console; press **Ctrl+C** to stop it.
 
-The web console supports recursive file scans, age and file filters, candidate selection, and selecting a subfolder to archive all of its contents regardless of those filters. Folder selections must be below the configured source folder; the source root itself cannot be selected. Dry runs, live moves, optional removal of empty source folders, and replacing an existing destination file only when the source is newer are supported. Existing destination files that are not replaced are skipped. Both last access and last write timestamps must be older than the age threshold for individually selected files. Reparse-point folders are skipped. The browser console does not currently offer folder compression or persistent text/CSV reports; job activity is shown in the console while it is running.
+The web console supports recursive file scans, age and file filters, candidate selection, and selecting a subfolder to archive all of its contents regardless of those filters. Use the header checkbox to select or clear all eligible files in the latest scan. **Export CSV** downloads every eligible file returned by that scan (up to 5,000), whether selected or not, with its path, name, last-modified timestamp, size, and selection state. Folder selections are not included in this file-candidate CSV. Folder selections must be below the configured source folder; the source root itself cannot be selected. Dry runs, live moves, optional removal of empty source folders, and replacing an existing destination file only when the source is newer are supported. Existing destination files that are not replaced are skipped. Both last access and last write timestamps must be older than the age threshold for individually selected files. Reparse-point folders are skipped. The browser console does not currently offer folder compression or persistent job reports; live job activity is shown in the console while it is running.
 
 Use the separate [hosted web console](#hosted-web-console) for shared, authenticated access; the localhost edition remains limited to the computer running it.
 

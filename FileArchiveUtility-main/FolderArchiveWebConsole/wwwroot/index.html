@@ -92,7 +92,9 @@
           <div class="panel-heading candidate-heading">
             <div class="step-number">02</div>
             <div><h2>Review files &amp; folders</h2><p id="candidate-summary">Run a scan to see eligible files here.</p></div>
-            <button id="select-all" class="text-button" type="button" disabled>Select all</button>
+            <div class="candidate-tools">
+              <button id="export-csv" class="button button-secondary" type="button" disabled title="Export all eligible files from the latest scan, not just selected files.">Export CSV</button>
+            </div>
           </div>
           <div class="folder-selection">
             <label class="field" for="folder-path">
@@ -107,7 +109,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th class="check-col"><span class="visually-hidden">Select</span></th><th>FILE</th><th>LAST MODIFIED (UTC)</th><th class="size-col">SIZE</th></tr></thead>
+              <thead><tr><th class="check-col"><input id="select-all" type="checkbox" aria-label="Select all eligible files" disabled></th><th>FILE</th><th>LAST MODIFIED (UTC)</th><th class="size-col">SIZE</th></tr></thead>
               <tbody id="candidate-list"><tr class="empty-row"><td colspan="4">No scan results yet. Set your locations and scan to begin.</td></tr></tbody>
             </table>
           </div>
