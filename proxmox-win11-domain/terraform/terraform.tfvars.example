@@ -1,0 +1,9 @@
+node_name          = "pve1"
+template_node_name = "pve1"
+template_vm_id     = 9000
+vm_count           = 10
+vm_id_start        = 2200
+name_prefix        = "WIN11"
+cpu_cores          = 4
+memory_mb          = 8192
+enable_guest_agent = true
