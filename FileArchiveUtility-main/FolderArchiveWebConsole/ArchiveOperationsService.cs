@@ -15,6 +15,7 @@ public class ScanRequest
 public sealed class ArchiveRequest : ScanRequest
 {
     public string[] SelectedPaths { get; set; } = [];
+    public string[] SelectedFolders { get; set; } = [];
     public bool DryRun { get; set; } = true;
     public bool RemoveEmptyFolders { get; set; } = true;
     public bool ReplaceNewerDestination { get; set; }
@@ -122,29 +123,94 @@ public sealed class ArchiveOperationsService
         var options = Validate(request);
         var thresholdUtc = DateTime.UtcNow.AddDays(-options.AgeDays);
         var selectedPaths = request.SelectedPaths ?? [];
+        var selectedFolders = request.SelectedFolders ?? [];
         var uniquePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var selectedFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var foldersToArchive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var folderDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var folderFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (selectedPaths.Length == 0)
-            throw new ArgumentException("Select at least one candidate before starting the archive job.");
+        if (selectedPaths.Length == 0 && selectedFolders.Length == 0)
+            throw new ArgumentException("Select at least one file or folder before starting the archive job.");
         if (!request.DryRun && !request.ConfirmLiveRun)
             throw new ArgumentException("Confirm the live archive operation before starting.");
+
+        foreach (var selectedFolder in selectedFolders)
+        {
+            var fullPath = NormalizeDirectory(selectedFolder, "selected folder");
+            if (!IsWithinDirectory(fullPath, options.SourcePath))
+                throw new ArgumentException("A selected folder must be a subfolder of the configured source folder.");
+            if (!Directory.Exists(fullPath))
+                throw new ArgumentException($"The selected folder does not exist: {fullPath}");
+            if ((File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0)
+                throw new ArgumentException("A selected folder cannot be a reparse point.");
+            if (!foldersToArchive.Add(fullPath))
+                throw new ArgumentException("The selection contains a duplicate folder.");
+        }
+
+        foreach (var selectedFolder in foldersToArchive)
+        {
+            if (foldersToArchive.Any(otherFolder =>
+                    !PathsEqual(otherFolder, selectedFolder) &&
+                    IsWithinDirectory(selectedFolder, otherFolder)))
+                throw new ArgumentException("Selected folders cannot contain one another.");
+
+            var enumerationOptions = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = false,
+                ReturnSpecialDirectories = false,
+                AttributesToSkip = FileAttributes.ReparsePoint
+            };
+
+            folderDirectories.Add(selectedFolder);
+            foreach (var directory in Directory.EnumerateDirectories(selectedFolder, "*", enumerationOptions))
+                folderDirectories.Add(directory);
+            foreach (var path in Directory.EnumerateFiles(selectedFolder, "*", enumerationOptions))
+                folderFiles.Add(Path.GetFullPath(path));
+        }
 
         foreach (var selectedPath in selectedPaths)
         {
             var fullPath = Path.GetFullPath(selectedPath);
             if (!IsWithinDirectory(fullPath, options.SourcePath))
                 throw new ArgumentException("A selected file is outside the configured source folder.");
-            if (!uniquePaths.Add(fullPath))
+            if (!selectedFilePaths.Add(fullPath))
                 throw new ArgumentException("The selection contains a duplicate file path.");
+            uniquePaths.Add(fullPath);
         }
 
+        uniquePaths.UnionWith(folderFiles);
         job.SetTotal(uniquePaths.Count);
+
+        foreach (var directory in folderDirectories)
+        {
+            var relativePath = Path.GetRelativePath(options.SourcePath, directory);
+            var destinationPath = Path.GetFullPath(Path.Combine(options.DestinationPath, relativePath));
+            if (!IsWithinDirectory(destinationPath, options.DestinationPath))
+                throw new IOException("The calculated destination folder is outside the configured destination folder.");
+
+            if (request.DryRun)
+                job.Log("Dry run", $"Would preserve folder: {directory} -> {destinationPath}");
+            else
+                Directory.CreateDirectory(destinationPath);
+        }
+
+        foreach (var selectedFolder in foldersToArchive)
+        {
+            var relativePath = Path.GetRelativePath(options.SourcePath, selectedFolder);
+            var destinationPath = Path.GetFullPath(Path.Combine(options.DestinationPath, relativePath));
+            job.Log(
+                request.DryRun ? "Dry run" : "Archiving",
+                $"{(request.DryRun ? "Would archive" : "Archiving")} entire folder: {selectedFolder} -> {destinationPath}");
+        }
+
         foreach (var sourcePath in uniquePaths)
         {
             try
             {
                 var file = new FileInfo(sourcePath);
-                if (!file.Exists || !Matches(file, thresholdUtc, options))
+                if (!file.Exists || (!folderFiles.Contains(sourcePath) && !Matches(file, thresholdUtc, options)))
                 {
                     job.Record("Skipped", $"No longer eligible: {sourcePath}");
                     continue;
@@ -185,6 +251,12 @@ public sealed class ArchiveOperationsService
             {
                 job.Record("Failed", $"{sourcePath}: {exception.Message}");
             }
+        }
+
+        if (request.RemoveEmptyFolders)
+        {
+            foreach (var directory in folderDirectories.OrderByDescending(path => path.Length))
+                RemoveEmptyParents(directory, options.SourcePath, job);
         }
     }
 
@@ -361,8 +433,9 @@ public sealed class JobCoordinator(ArchiveOperationsService archive)
         archive.Validate(request);
         if (!request.DryRun && !request.ConfirmLiveRun)
             throw new ArgumentException("Confirm the live archive operation before starting.");
-        if (request.SelectedPaths is not { Length: > 0 })
-            throw new ArgumentException("Select at least one candidate before starting the archive job.");
+        if (request.SelectedPaths is not { Length: > 0 } &&
+            request.SelectedFolders is not { Length: > 0 })
+            throw new ArgumentException("Select at least one file or folder before starting the archive job.");
 
         lock (_lock)
         {

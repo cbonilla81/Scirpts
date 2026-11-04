@@ -39,6 +39,7 @@ The localhost web console remains restricted to `localhost` for personal use. Th
 - Scan a source folder recursively and review up to 5,000 eligible files.
 - Filter by age, extension, minimum or maximum size, and excluded path text.
 - Select individual candidates or all candidates shown in the scan.
+- Select a subfolder to archive its entire contents, including files that do not match the scan filters.
 - Preview the operation in Dry Run mode before moving files.
 - Preserve the relative directory structure in the archive destination.
 - Optionally remove empty source subfolders after successful moves.
@@ -221,7 +222,7 @@ The web console is an additional version; it does not replace the existing Power
 
 The console starts a local web server at `http://localhost:5187` and attempts to open the browser. Keep the PowerShell window open while using the console; press **Ctrl+C** to stop it.
 
-The web console supports recursive file scans, age and file filters, candidate selection, dry runs, live file moves, optional removal of empty source folders, and replacing an existing destination file only when the source is newer. Both last access and last write timestamps must be older than the age threshold. Reparse-point folders are skipped. The browser console does not currently offer folder compression or persistent text/CSV reports; job activity is shown in the console while it is running.
+The web console supports recursive file scans, age and file filters, candidate selection, and selecting a subfolder to archive all of its contents regardless of those filters. Folder selections must be below the configured source folder; the source root itself cannot be selected. Dry runs, live moves, optional removal of empty source folders, and replacing an existing destination file only when the source is newer are supported. Existing destination files that are not replaced are skipped. Both last access and last write timestamps must be older than the age threshold for individually selected files. Reparse-point folders are skipped. The browser console does not currently offer folder compression or persistent text/CSV reports; job activity is shown in the console while it is running.
 
 Use the separate [hosted web console](#hosted-web-console) for shared, authenticated access; the localhost edition remains limited to the computer running it.
 
@@ -360,7 +361,7 @@ When selected, the utility removes source folders only when:
 - The folder is empty after files are moved.
 - The folder is not listed as an excluded folder.
 
-The utility does not move entire folders based only on the folder date. It evaluates individual files to avoid archiving newer files inside an older folder.
+The PowerShell GUI does not move entire folders based only on the folder date. It evaluates individual files to avoid archiving newer files inside an older folder. The web console separately allows explicitly selecting a subfolder to archive all of its contents.
 
 ## Overwrite Older Destination Files (PowerShell GUI)
 

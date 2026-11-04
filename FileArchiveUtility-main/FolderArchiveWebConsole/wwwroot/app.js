@@ -5,6 +5,9 @@ const selectAllButton = document.querySelector("#select-all");
 const candidateList = document.querySelector("#candidate-list");
 const candidateSummary = document.querySelector("#candidate-summary");
 const selectionCount = document.querySelector("#selection-count");
+const folderPathInput = document.querySelector("#folder-path");
+const addFolderButton = document.querySelector("#add-folder");
+const selectedFoldersList = document.querySelector("#selected-folders");
 const dryRunInput = document.querySelector("#dry-run");
 const liveConfirmation = document.querySelector("#live-confirmation");
 const confirmLive = document.querySelector("#confirm-live");
@@ -19,6 +22,7 @@ const toast = document.querySelector("#toast");
 let sessionToken = "";
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? "";
 let candidates = [];
+let selectedFolders = [];
 let jobRunning = false;
 let toastTimeout;
 
@@ -166,10 +170,56 @@ function selectedPaths() {
 }
 
 function updateSelection() {
-  const selected = selectedPaths().length;
-  selectionCount.textContent = `${selected.toLocaleString()} selected`;
-  runButton.disabled = selected === 0 || jobRunning || ( !dryRunInput.checked && !confirmLive.checked);
+  const selectedFileCount = selectedPaths().length;
+  const selectedCount = selectedFileCount + selectedFolders.length;
+  selectionCount.textContent = `${selectedFileCount.toLocaleString()} file(s), ${selectedFolders.length.toLocaleString()} folder(s) selected`;
+  runButton.disabled = selectedCount === 0 || jobRunning || (!dryRunInput.checked && !confirmLive.checked);
 }
+
+function renderSelectedFolders() {
+  selectedFoldersList.replaceChildren();
+  for (const folder of selectedFolders) {
+    const item = document.createElement("li");
+    const path = document.createElement("span");
+    path.textContent = folder;
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "text-button";
+    removeButton.textContent = "Remove";
+    removeButton.setAttribute("aria-label", `Remove ${folder}`);
+    removeButton.disabled = jobRunning;
+    removeButton.addEventListener("click", () => {
+      selectedFolders = selectedFolders.filter((selected) => selected !== folder);
+      renderSelectedFolders();
+      updateSelection();
+    });
+    item.append(path, removeButton);
+    selectedFoldersList.append(item);
+  }
+}
+
+addFolderButton.addEventListener("click", () => {
+  const folder = folderPathInput.value.trim();
+  if (!folder) {
+    showToast("Enter the full path of a subfolder under the source folder.", true);
+    return;
+  }
+  if (selectedFolders.some((selected) => selected.toLowerCase() === folder.toLowerCase())) {
+    showToast("That folder is already selected.", true);
+    return;
+  }
+  selectedFolders.push(folder);
+  folderPathInput.value = "";
+  renderSelectedFolders();
+  updateSelection();
+});
+
+folderPathInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addFolderButton.click();
+  }
+});
 
 selectAllButton.addEventListener("click", () => {
   const checks = [...document.querySelectorAll(".candidate-check")];
@@ -191,12 +241,13 @@ confirmLive.addEventListener("change", updateSelection);
 
 runButton.addEventListener("click", async () => {
   const paths = selectedPaths();
-  if (paths.length === 0 || jobRunning) return;
-  if (!dryRunInput.checked && !confirm("This will move selected files from the source folder. Continue?")) return;
+  if ((paths.length === 0 && selectedFolders.length === 0) || jobRunning || !form.reportValidity()) return;
+  if (!dryRunInput.checked && !confirm("This will move selected files and entire selected folders from the source folder. Continue?")) return;
 
   const request = {
     ...requestOptions(),
     selectedPaths: paths,
+    selectedFolders,
     dryRun: dryRunInput.checked,
     removeEmptyFolders: document.querySelector("#remove-empty").checked,
     replaceNewerDestination: document.querySelector("#replace-newer").checked,
@@ -251,10 +302,14 @@ async function pollJob(jobId) {
 
 function setControlsDisabled(disabled) {
   scanButton.disabled = disabled;
-  runButton.disabled = disabled || selectedPaths().length === 0 || (!dryRunInput.checked && !confirmLive.checked);
+  runButton.disabled = disabled ||
+    (selectedPaths().length === 0 && selectedFolders.length === 0) ||
+    (!dryRunInput.checked && !confirmLive.checked);
   selectAllButton.disabled = disabled || candidates.length === 0;
   document.querySelectorAll("#archive-form input").forEach((input) => { input.disabled = disabled; });
   document.querySelectorAll(".candidate-check").forEach((checkbox) => { checkbox.disabled = disabled; });
+  addFolderButton.disabled = disabled;
+  renderSelectedFolders();
 }
 
 function setJobDisplay(title, status) {

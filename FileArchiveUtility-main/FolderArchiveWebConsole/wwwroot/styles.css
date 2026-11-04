@@ -75,6 +75,17 @@ main { max-width: 1440px; margin-left: 248px; padding: 0 48px 25px; }
 .candidate-heading .text-button { margin-left: auto; }
 .text-button { border: 0; background: transparent; color: #4269cc; cursor: pointer; font-size: 10px; font-weight: 700; }
 .text-button:disabled { color: #b2bbc8; cursor: default; }
+.folder-selection { padding: 0 21px 14px; }
+.folder-selection .field small { line-height: 1.5; }
+.folder-entry { display: flex; gap: 8px; margin-top: 8px; }
+.folder-entry input { flex: 1; min-width: 0; height: 36px; border: 1px solid #dfe4eb; border-radius: 5px; background: #fff; color: var(--ink); outline: none; padding: 0 10px; font-size: 12px; }
+.folder-entry input:focus { border-color: #7494ed; box-shadow: 0 0 0 3px #3366e814; }
+.folder-entry input::placeholder { color: #adb6c3; }
+.selected-folders { list-style: none; margin: 0; padding: 0; }
+.selected-folders:not(:empty) { margin-top: 8px; }
+.selected-folders li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #f0f2f5; padding: 7px 0; color: #637087; font-size: 10px; }
+.selected-folders li span { min-width: 0; overflow-wrap: anywhere; }
+.selected-folders li .text-button { flex: 0 0 auto; }
 .table-wrap { overflow: auto; max-height: 350px; border-top: 1px solid #edf0f4; }
 table { border-collapse: collapse; width: 100%; text-align: left; }
 thead { position: sticky; top: 0; z-index: 1; background: #f8f9fb; }
@@ -143,7 +154,7 @@ td { padding: 9px 12px; border-top: 1px solid #f0f2f5; color: #637087; font-size
   .form-grid { grid-template-columns: 1fr; }
   .field.full { grid-column: auto; }
   .panel-heading { padding-left: 14px; padding-right: 14px; }
-  .form-grid, .run-options { padding-left: 14px; padding-right: 14px; }
+  .form-grid, .run-options, .folder-selection { padding-left: 14px; padding-right: 14px; }
   .actions { padding-left: 14px; padding-right: 14px; align-items: flex-start; flex-direction: column; }
   .candidate-footer { padding-left: 14px; padding-right: 14px; }
   .candidate-footer .safe-label { text-align: right; }

@@ -34,7 +34,7 @@
         <div>
           <div class="eyebrow">FILE MANAGEMENT</div>
           <h1>Archive operations</h1>
-          <p>Find aging files, review the candidates, then run a safe dry run or move the selected files.</p>
+          <p>Find aging files or select entire subfolders, review your choices, then preview or archive them.</p>
         </div>
         <div class="heading-mark" aria-hidden="true">⌁</div>
       </section>
@@ -91,8 +91,19 @@
         <section class="panel candidates-panel">
           <div class="panel-heading candidate-heading">
             <div class="step-number">02</div>
-            <div><h2>Review candidates</h2><p id="candidate-summary">Run a scan to see eligible files here.</p></div>
+            <div><h2>Review files &amp; folders</h2><p id="candidate-summary">Run a scan to see eligible files here.</p></div>
             <button id="select-all" class="text-button" type="button" disabled>Select all</button>
+          </div>
+          <div class="folder-selection">
+            <label class="field" for="folder-path">
+              <span>Archive an entire subfolder <em>Optional</em></span>
+              <small>Enter a full path under the source folder. All files and subfolders are included, even if they do not match the filters.</small>
+            </label>
+            <div class="folder-entry">
+              <input id="folder-path" type="text" placeholder="C:\Data\OldProject" autocomplete="off">
+              <button id="add-folder" class="button button-secondary" type="button">Add folder</button>
+            </div>
+            <ul id="selected-folders" class="selected-folders" aria-live="polite"></ul>
           </div>
           <div class="table-wrap">
             <table>
@@ -114,11 +125,11 @@
             <label class="toggle-row"><input id="replace-newer" type="checkbox"><span class="toggle"></span><span><strong>Replace older destination files</strong><small>Replace an existing file only when the source file is newer.</small></span></label>
           </div>
           <div id="live-confirmation" class="confirmation-box" hidden>
-            <label><input id="confirm-live" type="checkbox"><span>I reviewed the dry run and understand that live mode moves files out of the source folder.</span></label>
+            <label><input id="confirm-live" type="checkbox"><span>I reviewed the dry run and understand that live mode moves selected files and folders out of the source folder.</span></label>
           </div>
           <div class="actions run-actions">
             <button id="run-button" class="button button-primary" type="button" disabled><span aria-hidden="true">➜</span> Start dry run</button>
-            <span class="inline-note">Selected files are rechecked against the scan criteria before processing.</span>
+            <span class="inline-note">Selected files are rechecked against the filters. Files inside selected folders are all included.</span>
           </div>
         </section>
       </form>
