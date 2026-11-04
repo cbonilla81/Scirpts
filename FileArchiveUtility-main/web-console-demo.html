@@ -77,6 +77,15 @@
     .inline-note { color: #949eae; font-size: 10px; }
     .candidate-heading { padding-bottom: 14px; }
     .text-button { margin-left: auto; border: 0; background: transparent; color: #4269cc; font-size: 10px; font-weight: 700; }
+    .folder-selection { padding: 0 21px 14px; }
+    .folder-selection .field small { line-height: 1.5; }
+    .folder-entry { display: flex; gap: 8px; margin-top: 8px; }
+    .folder-entry input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid #dfe4eb; border-radius: 5px; background: #f8f9fb; color: var(--ink); font-size: 12px; }
+    .folder-entry .button { flex: 0 0 auto; }
+    .selected-folders { margin: 8px 0 0; padding: 0; list-style: none; }
+    .selected-folders li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid #f0f2f5; color: #637087; font-size: 10px; }
+    .selected-folders li span { min-width: 0; overflow-wrap: anywhere; }
+    .selected-folders .text-button { flex: 0 0 auto; }
     .table-wrap { overflow: auto; max-height: 260px; border-top: 1px solid #edf0f4; }
     table { width: 100%; border-collapse: collapse; text-align: left; }
     thead { position: sticky; top: 0; background: #f8f9fb; }
@@ -128,7 +137,7 @@
       h1 { font-size: 21px; }
       .form-grid { grid-template-columns: 1fr; }
       .field.full { grid-column: auto; }
-      .panel-heading, .form-grid, .run-options { padding-right: 14px; padding-left: 14px; }
+      .panel-heading, .form-grid, .run-options, .folder-selection { padding-right: 14px; padding-left: 14px; }
       .actions { align-items: flex-start; flex-direction: column; padding-right: 14px; padding-left: 14px; }
       .candidate-footer { padding-right: 14px; padding-left: 14px; }
       .file-cell { max-width: 220px; }
@@ -162,7 +171,7 @@
         <div>
           <div class="eyebrow">FILE MANAGEMENT</div>
           <h1>Archive operations</h1>
-          <p>Find aging files, review the candidates, then run a safe dry run or move the selected files.</p>
+          <p>Find aging files or select entire subfolders, review your choices, then preview or archive them.</p>
         </div>
       </section>
 
@@ -187,8 +196,21 @@
       <section class="panel">
         <div class="panel-heading candidate-heading">
           <div class="step-number">02</div>
-          <div><h2>Review candidates</h2><p>3 eligible files</p></div>
+          <div><h2>Review files &amp; folders</h2><p>3 eligible files</p></div>
           <button class="text-button" type="button">Select all</button>
+        </div>
+        <div class="folder-selection">
+          <label class="field" for="folder-path">
+            <span>Archive an entire subfolder <em>Optional</em></span>
+            <small>Enter a full path under the source folder. All files and subfolders are included, even if they do not match the filters.</small>
+          </label>
+          <div class="folder-entry">
+            <input id="folder-path" value="C:\DepartmentData\Projects\LegacyPortal" readonly>
+            <button class="button button-secondary" type="button">Add folder</button>
+          </div>
+          <ul class="selected-folders">
+            <li><span>C:\DepartmentData\Projects\LegacyPortal</span><button class="text-button" type="button">Remove</button></li>
+          </ul>
         </div>
         <div class="table-wrap">
           <table>
@@ -200,7 +222,7 @@
             </tbody>
           </table>
         </div>
-        <div class="candidate-footer"><span>2 selected</span><span class="safe-label"><b>✓</b> Nothing moves until you start a job</span></div>
+        <div class="candidate-footer"><span>2 file(s), 1 folder(s) selected</span><span class="safe-label"><b>✓</b> Nothing moves until you start a job</span></div>
       </section>
 
       <section class="panel">
@@ -210,15 +232,19 @@
           <div class="toggle-row"><span class="toggle"></span><span class="toggle-copy"><strong>Remove empty source folders</strong><small>Remove empty folders after a successful move; never remove the source root.</small></span></div>
           <div class="toggle-row"><span class="toggle" style="background:#ccd3de"><span style="display:block;width:12px;height:12px;margin:2px;border-radius:50%;background:white"></span></span><span class="toggle-copy"><strong>Replace older destination files</strong><small>Replace an existing file only when the source file is newer.</small></span></div>
         </div>
-        <div class="actions run-actions"><button class="button button-primary" type="button"><span aria-hidden="true">➜</span> Start dry run</button><span class="inline-note">Selected files are rechecked against the scan criteria before processing.</span></div>
+        <div class="actions run-actions"><button class="button button-primary" type="button"><span aria-hidden="true">➜</span> Start dry run</button><span class="inline-note">Selected files are rechecked against the filters. Files inside selected folders are all included.</span></div>
       </section>
 
       <section class="panel">
         <div class="panel-heading activity-heading"><div><div class="eyebrow">JOB ACTIVITY</div><h2>Dry run complete</h2></div><span class="job-status">COMPLETED</span></div>
         <div class="progress-track"><div></div></div>
-        <div class="job-stats">2 / 2 processed&nbsp; · &nbsp;0 moved&nbsp; · &nbsp;0 skipped&nbsp; · &nbsp;0 failed</div>
-        <pre class="activity-log">[2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Finance\2022\Annual Report.pdf -> D:\Archive\DepartmentData\Finance\2022\Annual Report.pdf
-[2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Operations\Project Notes.docx -> D:\Archive\DepartmentData\Operations\Project Notes.docx</pre>
+        <div class="job-stats">4 / 4 processed&nbsp; · &nbsp;0 moved&nbsp; · &nbsp;0 skipped&nbsp; · &nbsp;0 failed</div>
+        <pre class="activity-log">[2026-11-02 09:12:04] Dry run: Would preserve folder: C:\DepartmentData\Projects\LegacyPortal -> D:\Archive\DepartmentData\Projects\LegacyPortal
+[2026-11-02 09:12:04] Dry run: Would archive entire folder: C:\DepartmentData\Projects\LegacyPortal -> D:\Archive\DepartmentData\Projects\LegacyPortal
+[2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Finance\2022\Annual Report.pdf -> D:\Archive\DepartmentData\Finance\2022\Annual Report.pdf
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Operations\Project Notes.docx -> D:\Archive\DepartmentData\Operations\Project Notes.docx
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Projects\LegacyPortal\readme.txt -> D:\Archive\DepartmentData\Projects\LegacyPortal\readme.txt
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Projects\LegacyPortal\cache.tmp -> D:\Archive\DepartmentData\Projects\LegacyPortal\cache.tmp</pre>
       </section>
       <footer class="footer">File Archive Utility <span>•</span> Local browser console <span>•</span> Dry run first</footer>
     </main>

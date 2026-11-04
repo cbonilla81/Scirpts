@@ -11,8 +11,9 @@ public sealed class HostedJobCoordinator(ArchiveOperationsService archive)
         archive.Validate(request);
         if (!request.DryRun && !request.ConfirmLiveRun)
             throw new ArgumentException("Confirm the live archive operation before starting.");
-        if (request.SelectedPaths is not { Length: > 0 })
-            throw new ArgumentException("Select at least one candidate before starting the archive job.");
+        if (request.SelectedPaths is not { Length: > 0 } &&
+            request.SelectedFolders is not { Length: > 0 })
+            throw new ArgumentException("Select at least one file or folder before starting the archive job.");
 
         lock (_lock)
         {

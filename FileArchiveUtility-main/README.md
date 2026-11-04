@@ -34,7 +34,7 @@ The localhost web console remains restricted to `localhost` for personal use. Th
 - Prevent use of the same source and destination path.
 - Prevent placing the archive destination inside the source folder.
 
-## Web Console Features
+## Localhost Web Console Features
 
 - Scan a source folder recursively and review up to 5,000 eligible files.
 - Filter by age, extension, minimum or maximum size, and excluded path text.
@@ -51,6 +51,8 @@ The localhost web console remains restricted to `localhost` for personal use. Th
 ### Hosted Web Console
 
 The hosted console is a separate application for shared use on Windows Server with IIS. It uses Microsoft Entra ID for sign-in and does not store user passwords. Console pages and APIs require an authenticated session, and state-changing requests require an anti-forgery token. Each user can see their own current job status; only one archive job can run at a time across a server instance.
+
+The hosted console shares the archive interface and file-processing service with the localhost web console. It supports selecting a subfolder under the configured source to archive all of its contents, including files that do not match the scan filters. The source root cannot be selected, reparse-point folders are skipped, and existing destination files follow the configured skip/replace behavior. Review a Dry Run before starting a live archive. File operations run as the IIS application-pool identity.
 
 #### Before you begin
 
@@ -361,7 +363,7 @@ When selected, the utility removes source folders only when:
 - The folder is empty after files are moved.
 - The folder is not listed as an excluded folder.
 
-The PowerShell GUI does not move entire folders based only on the folder date. It evaluates individual files to avoid archiving newer files inside an older folder. The web console separately allows explicitly selecting a subfolder to archive all of its contents.
+The PowerShell GUI does not move entire folders based only on the folder date. It evaluates individual files to avoid archiving newer files inside an older folder. Both web console editions allow explicitly selecting a subfolder to archive all of its contents.
 
 ## Overwrite Older Destination Files (PowerShell GUI)
 
