@@ -45,6 +45,7 @@ public sealed class ArchiveOperationsService
         var thresholdUtc = DateTime.UtcNow.AddDays(-options.AgeDays);
         var candidates = new List<Candidate>();
         var truncated = false;
+        var candidateCount = 0;
 
         var enumerationOptions = new EnumerationOptions
         {
@@ -76,6 +77,8 @@ public sealed class ArchiveOperationsService
             var file = new FileInfo(path);
             if (!file.Exists)
                 continue;
+            if (!Matches(file, thresholdUtc, options))
+                continue;
 
             var parent = Path.GetDirectoryName(file.FullName);
             while (!string.IsNullOrEmpty(parent) && folderStats.TryGetValue(parent, out var stats))
@@ -84,8 +87,7 @@ public sealed class ArchiveOperationsService
                 parent = Path.GetDirectoryName(parent);
             }
 
-            if (!Matches(file, thresholdUtc, options))
-                continue;
+            candidateCount = checked(candidateCount + 1);
 
             if (candidates.Count == CandidateLimit)
             {
@@ -100,7 +102,7 @@ public sealed class ArchiveOperationsService
             options.SourcePath,
             options.DestinationPath,
             options.AgeDays,
-            candidates.Count,
+            candidateCount,
             truncated,
             candidates.ToArray(),
             folderStats
@@ -166,8 +168,6 @@ public sealed class ArchiveOperationsService
         var uniquePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var selectedFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var foldersToArchive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var folderDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var folderFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (selectedPaths.Length == 0 && selectedFolders.Length == 0)
             throw new ArgumentException("Select at least one file or folder before starting the archive job.");
@@ -202,11 +202,12 @@ public sealed class ArchiveOperationsService
                 AttributesToSkip = FileAttributes.ReparsePoint
             };
 
-            folderDirectories.Add(selectedFolder);
-            foreach (var directory in Directory.EnumerateDirectories(selectedFolder, "*", enumerationOptions))
-                folderDirectories.Add(directory);
             foreach (var path in Directory.EnumerateFiles(selectedFolder, "*", enumerationOptions))
-                folderFiles.Add(Path.GetFullPath(path));
+            {
+                var file = new FileInfo(path);
+                if (file.Exists && Matches(file, thresholdUtc, options))
+                    uniquePaths.Add(file.FullName);
+            }
         }
 
         foreach (var selectedPath in selectedPaths)
@@ -219,37 +220,19 @@ public sealed class ArchiveOperationsService
             uniquePaths.Add(fullPath);
         }
 
-        uniquePaths.UnionWith(folderFiles);
         job.SetTotal(uniquePaths.Count);
 
-        foreach (var directory in folderDirectories)
-        {
-            var relativePath = Path.GetRelativePath(options.SourcePath, directory);
-            var destinationPath = Path.GetFullPath(Path.Combine(options.DestinationPath, relativePath));
-            if (!IsWithinDirectory(destinationPath, options.DestinationPath))
-                throw new IOException("The calculated destination folder is outside the configured destination folder.");
-
-            if (request.DryRun)
-                job.Log("Dry run", $"Would preserve folder: {directory} -> {destinationPath}");
-            else
-                Directory.CreateDirectory(destinationPath);
-        }
-
         foreach (var selectedFolder in foldersToArchive)
-        {
-            var relativePath = Path.GetRelativePath(options.SourcePath, selectedFolder);
-            var destinationPath = Path.GetFullPath(Path.Combine(options.DestinationPath, relativePath));
             job.Log(
-                request.DryRun ? "Dry run" : "Archiving",
-                $"{(request.DryRun ? "Would archive" : "Archiving")} entire folder: {selectedFolder} -> {destinationPath}");
-        }
+                "Folder selection",
+                $"Processing files matching the scan filters under: {selectedFolder}");
 
         foreach (var sourcePath in uniquePaths)
         {
             try
             {
                 var file = new FileInfo(sourcePath);
-                if (!file.Exists || (!folderFiles.Contains(sourcePath) && !Matches(file, thresholdUtc, options)))
+                if (!file.Exists || !Matches(file, thresholdUtc, options))
                 {
                     job.Record("Skipped", $"No longer eligible: {sourcePath}");
                     continue;
@@ -292,11 +275,6 @@ public sealed class ArchiveOperationsService
             }
         }
 
-        if (request.RemoveEmptyFolders)
-        {
-            foreach (var directory in folderDirectories.OrderByDescending(path => path.Length))
-                RemoveEmptyParents(directory, options.SourcePath, job);
-        }
     }
 
     private static bool Matches(FileInfo file, DateTime thresholdUtc, ValidatedOptions options)

@@ -46,8 +46,19 @@ async function initialize() {
 function requestOptions() {
   return {
     sourcePath: document.querySelector("#source").value.trim(),
-    destinationPath: document.querySelector("#destination").value.trim()
+    destinationPath: document.querySelector("#destination").value.trim(),
+    ageDays: Number(document.querySelector("#age-days").value),
+    includeExtensions: document.querySelector("#include-extensions").value.trim(),
+    excludeExtensions: document.querySelector("#exclude-extensions").value.trim(),
+    minSizeMb: optionalNumber("#min-size-mb"),
+    maxSizeMb: optionalNumber("#max-size-mb"),
+    excludePaths: document.querySelector("#exclude-paths").value.trim()
   };
+}
+
+function optionalNumber(selector) {
+  const value = document.querySelector(selector).value.trim();
+  return value === "" ? null : Number(value);
 }
 
 async function api(path, body) {
@@ -82,7 +93,7 @@ scanButton.addEventListener("click", async () => {
     folders = result.folders;
     selectedFolders = [];
     renderFolders(result);
-    setActivity(`Scan complete. ${folders.length.toLocaleString()} subfolder(s) found.`);
+    setActivity(`Scan complete. ${folders.length.toLocaleString()} subfolder(s) found; ${result.candidateCount.toLocaleString()} file(s) match the filters.`);
     setJobDisplay("Scan complete", "READY");
   } catch (error) {
     folders = [];
@@ -129,7 +140,7 @@ function renderFolders(result) {
       folderCell.append(folderName, folderPath);
 
       const contentsCell = document.createElement("td");
-      contentsCell.textContent = `${folder.fileCount.toLocaleString()} file(s) · ${folder.subfolderCount.toLocaleString()} subfolder(s)`;
+      contentsCell.textContent = `${folder.fileCount.toLocaleString()} eligible file(s) · ${folder.subfolderCount.toLocaleString()} subfolder(s)`;
       const sizeCell = document.createElement("td");
       sizeCell.className = "size-col";
       sizeCell.textContent = formatSize(folder.sizeBytes);
@@ -140,7 +151,7 @@ function renderFolders(result) {
   }
 
   candidateSummary.textContent = result
-    ? `${result.folders.length.toLocaleString()} subfolder(s) found recursively`
+    ? `${result.folders.length.toLocaleString()} subfolder(s) found · ${result.candidateCount.toLocaleString()} file(s) match filters`
     : "Run a scan to list source subfolders.";
   selectAllInput.disabled = !result || result.folders.length === 0 || jobRunning;
   exportCsvButton.disabled = !result || result.folders.length === 0 || jobRunning;
@@ -243,7 +254,7 @@ function downloadCsv(filename, rows) {
 exportCsvButton.addEventListener("click", () => {
   if (folders.length === 0 || jobRunning) return;
   const rows = [
-    ["Path", "Folder", "Files", "Subfolders", "Total Size (bytes)", "Selected"],
+    ["Path", "Folder", "Eligible Files", "Subfolders", "Eligible Size (bytes)", "Selected"],
     ...folders.map((folder) => [
       folder.path,
       relativeFolderPath(folder.path),

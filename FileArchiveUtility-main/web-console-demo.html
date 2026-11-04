@@ -177,25 +177,31 @@
         <div class="form-grid">
           <label class="field full"><span>Source folder <i>Required</i></span><input value="C:\DepartmentData" readonly><small>Subfolders are listed recursively. Reparse-point folders are not followed.</small></label>
           <label class="field full"><span>Archive destination <i>Required</i></span><input value="D:\Archive\DepartmentData" readonly><small>The folder structure under the source is preserved at the destination.</small></label>
+          <label class="field"><span>Minimum file age</span><input value="365 days" readonly><small>Files newer by last access or modified date are excluded.</small></label>
+          <label class="field"><span>Include extensions</span><input value="(all extensions)" readonly><small>Optional; comma-separated.</small></label>
+          <label class="field"><span>Exclude extensions</span><input value=".tmp, .log" readonly><small>Optional; comma-separated.</small></label>
+          <label class="field"><span>Minimum file size</span><input value="No minimum" readonly></label>
+          <label class="field"><span>Maximum file size</span><input value="No maximum" readonly></label>
+          <label class="field full"><span>Exclude paths</span><input value="(none)" readonly><small>Files whose full path contains an excluded value are not eligible.</small></label>
         </div>
-        <div class="actions"><button class="button button-secondary" type="button"><span aria-hidden="true">⌕</span> Scan for folders</button><span class="inline-note">Folder archives include all contents, regardless of age or file type. Files directly in the source root are not included.</span></div>
+        <div class="actions"><button class="button button-secondary" type="button"><span aria-hidden="true">⌕</span> Scan for folders</button><span class="inline-note">Only files matching the filters are eligible. Files directly in the source root are not included.</span></div>
       </section>
 
       <section class="panel">
         <div class="panel-heading candidate-heading">
           <div class="step-number">02</div>
-          <div><h2>Review folders</h2><p>4 folders available</p></div>
+          <div><h2>Review folders</h2><p>4 folders available · 8 files match filters</p></div>
           <div class="candidate-tools"><button class="button button-secondary" type="button">Export folder list</button></div>
         </div>
-        <p class="folder-selection-note">Select folders to archive all files and subfolders inside them. Selecting a parent folder includes its descendants.</p>
+        <p class="folder-selection-note">Eligible file counts and sizes reflect the filters; nested-folder counts show the scanned folder structure. Only matching files in a selected folder and its descendants are archived.</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th class="check-col"><input id="demo-select-all" type="checkbox" aria-label="Select all folders"></th><th>FOLDER</th><th>CONTENTS</th><th class="size-col">TOTAL SIZE</th></tr></thead>
+            <thead><tr><th class="check-col"><input id="demo-select-all" type="checkbox" aria-label="Select all folders"></th><th>FOLDER</th><th>ELIGIBLE CONTENTS</th><th class="size-col">ELIGIBLE SIZE</th></tr></thead>
             <tbody>
-              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select Finance folder"></td><td class="folder-cell"><strong>Finance</strong><small>C:\DepartmentData\Finance</small></td><td>18 files · 3 subfolders</td><td class="size-col">48.2 MB</td></tr>
-              <tr><td class="check-col"><input type="checkbox" checked disabled aria-label="Finance 2022 folder is included with its parent"></td><td class="folder-cell"><strong>Finance\2022</strong><small>C:\DepartmentData\Finance\2022</small></td><td>18 files · 2 subfolders</td><td class="size-col">48.2 MB</td></tr>
-              <tr><td class="check-col"><input type="checkbox" aria-label="Select Operations folder"></td><td class="folder-cell"><strong>Operations</strong><small>C:\DepartmentData\Operations</small></td><td>7 files · 1 subfolder</td><td class="size-col">1.8 MB</td></tr>
-              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select LegacyPortal folder"></td><td class="folder-cell"><strong>Projects\LegacyPortal</strong><small>C:\DepartmentData\Projects\LegacyPortal</small></td><td>42 files · 6 subfolders</td><td class="size-col">312 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select Finance folder"></td><td class="folder-cell"><strong>Finance</strong><small>C:\DepartmentData\Finance</small></td><td>3 eligible files · 3 subfolders</td><td class="size-col">8.2 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" checked disabled aria-label="Finance 2022 folder is included with its parent"></td><td class="folder-cell"><strong>Finance\2022</strong><small>C:\DepartmentData\Finance\2022</small></td><td>2 eligible files · 2 subfolders</td><td class="size-col">4.8 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" aria-label="Select Operations folder"></td><td class="folder-cell"><strong>Operations</strong><small>C:\DepartmentData\Operations</small></td><td>1 eligible file · 1 subfolder</td><td class="size-col">1.1 MB</td></tr>
+              <tr><td class="check-col"><input type="checkbox" checked aria-label="Select LegacyPortal folder"></td><td class="folder-cell"><strong>Projects\LegacyPortal</strong><small>C:\DepartmentData\Projects\LegacyPortal</small></td><td>4 eligible files · 6 subfolders</td><td class="size-col">12 MB</td></tr>
             </tbody>
           </table>
         </div>
@@ -215,14 +221,17 @@
       <section class="panel">
         <div class="panel-heading activity-heading"><div><div class="eyebrow">JOB ACTIVITY</div><h2>Dry run complete</h2></div><span class="job-status">COMPLETED</span></div>
         <div class="progress-track"><div></div></div>
-        <div class="job-stats">60 / 60 files processed&nbsp; · &nbsp;0 moved&nbsp; · &nbsp;0 skipped&nbsp; · &nbsp;0 failed</div>
+        <div class="job-stats">7 / 7 eligible files processed&nbsp; · &nbsp;0 moved&nbsp; · &nbsp;0 skipped&nbsp; · &nbsp;0 failed</div>
         <div class="job-export-row"><button class="button button-secondary" type="button">Export job output</button><span class="inline-note">Download the job summary and activity as CSV.</span></div>
-        <pre class="activity-log">[2026-11-02 09:12:04] Dry run: Would preserve folder: C:\DepartmentData\Finance\2022 -> D:\Archive\DepartmentData\Finance\2022
-[2026-11-02 09:12:04] Dry run: Would preserve folder: C:\DepartmentData\Projects\LegacyPortal -> D:\Archive\DepartmentData\Projects\LegacyPortal
-[2026-11-02 09:12:04] Dry run: Would archive entire folder: C:\DepartmentData\Finance\2022 -> D:\Archive\DepartmentData\Finance\2022
-[2026-11-02 09:12:04] Dry run: Would archive entire folder: C:\DepartmentData\Projects\LegacyPortal -> D:\Archive\DepartmentData\Projects\LegacyPortal
-[2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Finance\2022\Annual Report.pdf -> D:\Archive\DepartmentData\Finance\2022\Annual Report.pdf
-[2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Projects\LegacyPortal\cache.tmp -> D:\Archive\DepartmentData\Projects\LegacyPortal\cache.tmp</pre>
+        <pre class="activity-log">        [2026-11-02 09:12:04] Folder selection: Processing files matching the scan filters under: C:\DepartmentData\Finance
+        [2026-11-02 09:12:04] Folder selection: Processing files matching the scan filters under: C:\DepartmentData\Projects\LegacyPortal
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Finance\summary.pdf -> D:\Archive\DepartmentData\Finance\summary.pdf
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Finance\2022\annual-report.pdf -> D:\Archive\DepartmentData\Finance\2022\annual-report.pdf
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Finance\2022\budget.pdf -> D:\Archive\DepartmentData\Finance\2022\budget.pdf
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Projects\LegacyPortal\release-notes.pdf -> D:\Archive\DepartmentData\Projects\LegacyPortal\release-notes.pdf
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Projects\LegacyPortal\archive.pdf -> D:\Archive\DepartmentData\Projects\LegacyPortal\archive.pdf
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Projects\LegacyPortal\readme.pdf -> D:\Archive\DepartmentData\Projects\LegacyPortal\readme.pdf
+        [2026-11-02 09:12:04] Dry run: Would move: C:\DepartmentData\Projects\LegacyPortal\specification.pdf -> D:\Archive\DepartmentData\Projects\LegacyPortal\specification.pdf</pre>
       </section>
       <footer class="footer">File Archive Utility <span>•</span> Local browser console <span>•</span> Dry run first</footer>
     </main>

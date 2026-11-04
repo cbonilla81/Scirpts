@@ -56,10 +56,38 @@
               <input id="destination" name="destinationPath" type="text" placeholder="D:\Archive or \\server\share\Archive" required autocomplete="off">
               <small>The folder structure under the source is preserved at the destination.</small>
             </label>
+            <label class="field">
+              <span>Minimum file age</span>
+              <div class="input-suffix"><input id="age-days" name="ageDays" type="number" min="1" max="36500" step="1" value="365" required><span>days</span></div>
+              <small>Files newer by last access or modified date are excluded.</small>
+            </label>
+            <label class="field">
+              <span>Include extensions</span>
+              <input id="include-extensions" name="includeExtensions" type="text" placeholder=".docx, .pdf" autocomplete="off">
+              <small>Optional; leave blank to allow all extensions.</small>
+            </label>
+            <label class="field">
+              <span>Exclude extensions</span>
+              <input id="exclude-extensions" name="excludeExtensions" type="text" placeholder=".tmp, .log" autocomplete="off">
+              <small>Optional; comma-separated.</small>
+            </label>
+            <label class="field">
+              <span>Minimum file size</span>
+              <div class="input-suffix"><input id="min-size-mb" name="minSizeMb" type="number" min="0" step="any" placeholder="No minimum"><span>MB</span></div>
+            </label>
+            <label class="field">
+              <span>Maximum file size</span>
+              <div class="input-suffix"><input id="max-size-mb" name="maxSizeMb" type="number" min="0" step="any" placeholder="No maximum"><span>MB</span></div>
+            </label>
+            <label class="field full">
+              <span>Exclude paths</span>
+              <textarea id="exclude-paths" name="excludePaths" rows="2" placeholder="Optional; enter paths or names separated by commas or new lines"></textarea>
+              <small>Files whose full path contains any listed value are excluded.</small>
+            </label>
           </div>
           <div class="actions">
             <button id="scan-button" class="button button-secondary" type="button" disabled><span aria-hidden="true">⌕</span> Scan for folders</button>
-            <span class="inline-note">Folder archives include all contents, regardless of file age or type. Files directly in the source root are not included.</span>
+            <span class="inline-note">Only files matching these filters are eligible. Files directly in the source root are not included.</span>
           </div>
         </section>
 
@@ -71,10 +99,10 @@
               <button id="export-csv" class="button button-secondary" type="button" disabled title="Export all subfolders from the latest scan, not just selected folders.">Export folder list</button>
             </div>
           </div>
-          <p class="folder-selection-note">Select folders to archive all files and nested folders inside them. Selecting a parent includes its descendants.</p>
+          <p class="folder-selection-note">Eligible file counts and sizes reflect the filters; nested-folder counts show the scanned folder structure. Only matching files in a selected folder and its descendants are archived.</p>
           <div class="table-wrap">
             <table>
-              <thead><tr><th class="check-col"><input id="select-all" type="checkbox" aria-label="Select all folders" disabled></th><th>FOLDER</th><th>CONTENTS</th><th class="size-col">TOTAL SIZE</th></tr></thead>
+              <thead><tr><th class="check-col"><input id="select-all" type="checkbox" aria-label="Select all folders" disabled></th><th>FOLDER</th><th>ELIGIBLE CONTENTS</th><th class="size-col">ELIGIBLE SIZE</th></tr></thead>
               <tbody id="folder-list"><tr class="empty-row"><td colspan="4">No scan results yet. Set your locations and scan to begin.</td></tr></tbody>
             </table>
           </div>
@@ -92,11 +120,11 @@
             <label class="toggle-row"><input id="replace-newer" type="checkbox"><span class="toggle"></span><span><strong>Replace older destination files</strong><small>Replace an existing file only when the source file is newer.</small></span></label>
           </div>
           <div id="live-confirmation" class="confirmation-box" hidden>
-            <label><input id="confirm-live" type="checkbox"><span>I reviewed the dry run and understand that live mode moves selected folders and all their contents out of the source.</span></label>
+            <label><input id="confirm-live" type="checkbox"><span>I reviewed the dry run and understand that live mode moves only matching files from the selected folders out of the source.</span></label>
           </div>
           <div class="actions run-actions">
             <button id="run-button" class="button button-primary" type="button" disabled><span aria-hidden="true">➜</span> Start dry run</button>
-            <span class="inline-note">Selected folders are rechecked before processing; all their contents are included.</span>
+            <span class="inline-note">Selected folders are rechecked before processing; only files matching the filters are included.</span>
           </div>
         </section>
       </form>
