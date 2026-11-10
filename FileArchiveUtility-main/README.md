@@ -173,7 +173,7 @@ To preview the hosted sign-in page and then the hosted console layout, open [hos
 
 ## Windows Forms Desktop Features
 
-The .NET desktop application supports scanning a folder tree, reviewing and checking candidate files and folders, file filters, Dry Run, live moves, optional removal of empty source folders, folder compression to ZIP, and interactive per-item move and overwrite prompts. Its current age threshold is 365 days.
+The .NET desktop application supports scanning a folder tree, reviewing and checking candidate files and folders, file filters, Dry Run, live moves, optional removal of empty source folders, folder compression to ZIP, and interactive per-item move and overwrite prompts. Its current age threshold is 365 days. During a scan, the status line shows the number of files and folders scanned and the current path; the progress bar is indeterminate because the total number of entries is not known in advance. Scan access and enumeration errors are written to the activity log and summarized when the scan completes. Directory reparse points (such as junctions and directory symlinks) are logged and skipped to prevent recursive loops.
 
 ## Requirements
 

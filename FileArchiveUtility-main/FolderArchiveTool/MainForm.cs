@@ -16,6 +16,7 @@ namespace FolderArchiveTool
         Button btnBrowseSource = null!, btnBrowseDest = null!, btnScan = null!, btnExecute = null!;
         TreeView treeCandidates = null!;
         TextBox txtPreview = null!, txtLog = null!;
+        Label lblScanStatus = null!;
         ProgressBar progressBar = null!;
         CheckBox chkDryRun = null!, chkRemoveEmpty = null!, chkApplyChoiceToAll = null!;
 
@@ -83,18 +84,19 @@ namespace FolderArchiveTool
             treeCandidates = new TreeView() { Left = 10, Top = 220, Width = 450, Height = 350, CheckBoxes = true };
             treeCandidates.AfterSelect += (s, e) => UpdatePreviewForSelectedNode();
 
-            txtPreview = new TextBox() { Left = 470, Top = 220, Width = 490, Height = 250, Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true };
+            txtPreview = new TextBox() { Left = 470, Top = 220, Width = 490, Height = 245, Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true };
 
-            progressBar = new ProgressBar() { Left = 470, Top = 480, Width = 490, Height = 20 };
+            lblScanStatus = new Label() { Left = 470, Top = 470, Width = 490, Height = 18, AutoEllipsis = true, Text = "Ready." };
+            progressBar = new ProgressBar() { Left = 470, Top = 490, Width = 490, Height = 20 };
 
-            btnExecute = new Button() { Text = "Execute Move/Archive", Left = 470, Top = 510, Width = 160 };
+            btnExecute = new Button() { Text = "Execute Move/Archive", Left = 470, Top = 520, Width = 160 };
             btnExecute.Click += async (s, e) => await ExecuteMoveAsync();
 
-            chkApplyChoiceToAll = new CheckBox() { Text = "Apply my move choice to all remaining prompts", Left = 650, Top = 514, Width = 320 };
+            chkApplyChoiceToAll = new CheckBox() { Text = "Apply my move choice to all remaining prompts", Left = 650, Top = 524, Width = 320 };
 
             txtLog = new TextBox() { Left = 10, Top = 580, Width = 950, Height = 70, Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true };
 
-            Controls.AddRange(new Control[] { lblSource, txtSource, btnBrowseSource, lblDest, txtDestination, btnBrowseDest, btnScan, chkDryRun, chkRemoveEmpty, chkCompressFolders, lblInclude, txtIncludeExt, lblExclude, txtExcludeExt, lblMinSize, txtMinSizeMb, lblMaxSize, txtMaxSizeMb, lblExcludePaths, txtExcludePaths, treeCandidates, txtPreview, progressBar, btnExecute, chkApplyChoiceToAll, txtLog });
+            Controls.AddRange(new Control[] { lblSource, txtSource, btnBrowseSource, lblDest, txtDestination, btnBrowseDest, btnScan, chkDryRun, chkRemoveEmpty, chkCompressFolders, lblInclude, txtIncludeExt, lblExclude, txtExcludeExt, lblMinSize, txtMinSizeMb, lblMaxSize, txtMaxSizeMb, lblExcludePaths, txtExcludePaths, treeCandidates, txtPreview, lblScanStatus, progressBar, btnExecute, chkApplyChoiceToAll, txtLog });
         }
 
         async Task ScanAsync()
@@ -115,38 +117,48 @@ namespace FolderArchiveTool
 
             AppendLog($"Scanning {sourceRoot} for items where both last write AND last access are older than {thresholdDateUtc:u} (UTC)");
             btnScan.Enabled = false;
+            btnExecute.Enabled = false;
+            lblScanStatus.Text = "Scanning source folders...";
             try
             {
-                var rootNode = new TreeNode(Path.GetFileName(sourceRoot)) { Tag = sourceRoot };
                 progressBar.Style = ProgressBarStyle.Marquee;
 
-                await Task.Run(() =>
+                var scanProgress = new Progress<ArchiveScanProgress>(update =>
                 {
-                    bool rootQualifies = ArchiveScanner.BuildNodeRecursive(sourceRoot, rootNode, thresholdDateUtc, currentFilters);
+                    lblScanStatus.Text =
+                        $"Scanning: {update.FilesScanned:N0} files, {update.FoldersScanned:N0} folders - {update.CurrentPath}";
                 });
 
+                var result = await Task.Run(() => ArchiveScanner.Scan(
+                    sourceRoot,
+                    thresholdDateUtc,
+                    currentFilters,
+                    scanProgress,
+                    (path, exception) => AppendLog(
+                        $"Scan error at {path}: {exception.GetType().Name}: {exception.Message}"),
+                    path => AppendLog($"Skipped reparse-point folder: {path}")));
+
+                var rootNode = new TreeNode();
+                ArchiveScanner.CopyToTreeNode(result.Root, rootNode);
                 treeCandidates.Nodes.Add(rootNode);
                 rootNode.Expand();
-                AppendLog("Scan complete.");
+                lblScanStatus.Text =
+                    $"Scan complete: {result.FilesScanned:N0} files, {result.FoldersScanned:N0} folders, " +
+                    $"{result.ErrorCount:N0} errors, {result.SkippedReparsePointCount:N0} linked folders skipped.";
+                AppendLog(lblScanStatus.Text);
+            }
+            catch (Exception ex)
+            {
+                lblScanStatus.Text = "Scan failed.";
+                AppendLog($"Scan failed: {ex}");
+                MessageBox.Show($"The scan could not be completed. See the log for details.{Environment.NewLine}{ex.Message}",
+                    "Scan error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
                 progressBar.Style = ProgressBarStyle.Blocks;
                 btnScan.Enabled = true;
-            }
-        }
-
-        bool BuildNodeRecursive(string path, TreeNode node)
-        {
-            // Delegate to ArchiveScanner but keep same signature for compatibility
-            try
-            {
-                return ArchiveScanner.BuildNodeRecursive(path, node, thresholdDateUtc, currentFilters);
-            }
-            catch (Exception ex)
-            {
-                AppendLog($"Error scanning {path}: {ex.Message}");
-                return false;
+                btnExecute.Enabled = true;
             }
         }
 
