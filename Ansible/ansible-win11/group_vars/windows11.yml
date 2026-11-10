@@ -1,0 +1,21 @@
+# Use HTTPS WinRM with a trusted server certificate in production.
+ansible_connection: winrm
+ansible_port: 5986
+ansible_winrm_transport: ntlm
+ansible_winrm_server_cert_validation: validate
+ansible_user: "{{ lookup('env', 'WIN_LOCAL_USER') }}"
+ansible_password: "{{ lookup('env', 'WIN_LOCAL_PASSWORD') }}"
+
+ad_domain_name: corp.example.com
+ad_domain_ou: 'OU=Workstations,DC=corp,DC=example,DC=com'
+ad_join_user: "{{ lookup('env', 'AD_JOIN_USER') }}"
+ad_join_password: "{{ lookup('env', 'AD_JOIN_PASSWORD') }}"
+# Domain DNS servers must be configured on the guest NIC before domain join.
+ad_dns_servers:
+  - 192.168.10.10
+  - 192.168.10.11
+# Review categories against your WSUS/WUfB policy.
+update_categories:
+  - SecurityUpdates
+  - CriticalUpdates
+  - UpdateRollups

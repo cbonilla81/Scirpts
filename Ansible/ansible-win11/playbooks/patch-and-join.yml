@@ -1,0 +1,108 @@
+---
+- name: Patch Windows 11, then join Active Directory
+  hosts: windows11
+  gather_facts: false
+  serial: 2
+  tasks:
+    - name: Verify WinRM connectivity
+      ansible.windows.win_ping:
+
+    - name: Check domain and DNS configuration inputs
+      ansible.builtin.assert:
+        that:
+          - ad_domain_name | length > 0
+          - ad_domain_ou | length > 0
+          - ad_dns_servers | length > 0
+          - ad_join_user | length > 0
+          - ad_join_password | length > 0
+        fail_msg: 'Domain configuration or AD_JOIN_USER/AD_JOIN_PASSWORD is missing.'
+      no_log: true
+
+    - name: Install required security and critical updates with automatic reboots
+      ansible.windows.win_updates:
+        category_names: "{{ update_categories }}"
+        state: installed
+        reboot: true
+        reboot_timeout: 3600
+      register: update_result
+      retries: 3
+      delay: 120
+      until: update_result is succeeded
+
+    - name: Scan again to ensure no matching updates remain
+      ansible.windows.win_updates:
+        category_names: "{{ update_categories }}"
+        state: searched
+      register: remaining_updates
+
+    - name: Stop if matching updates remain
+      ansible.builtin.assert:
+        that:
+          - remaining_updates.found_update_count | int == 0
+        fail_msg: 'Required updates remain; domain join has been blocked.'
+
+    - name: Check for pending Windows reboot
+      ansible.windows.win_powershell:
+        script: |
+          $pending = @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending',
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'
+          ) | Where-Object { Test-Path $_ }
+          $rename = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue
+          $Ansible.Result = [bool]($pending.Count -gt 0 -or $null -ne $rename)
+      register: pending_reboot
+
+    - name: Block domain join if reboot pending
+      ansible.builtin.assert:
+        that:
+          - not (pending_reboot.result | bool)
+        fail_msg: 'A reboot is still pending; domain join blocked.'
+
+    - name: Set Active Directory DNS resolvers on active IPv4 interfaces
+      ansible.windows.win_powershell:
+        script: |
+          $servers = @($Ansible.Params.dns_servers)
+          $interfaces = @(Get-NetAdapter | Where-Object Status -eq 'Up')
+          if (-not $interfaces) { throw 'No active network interfaces found' }
+          foreach ($nic in $interfaces) {
+            Set-DnsClientServerAddress -InterfaceIndex $nic.ifIndex -ServerAddresses $servers
+          }
+        parameters:
+          dns_servers: "{{ ad_dns_servers }}"
+
+    - name: Join Active Directory domain
+      microsoft.ad.membership:
+        dns_domain_name: "{{ ad_domain_name }}"
+        domain_admin_user: "{{ ad_join_user }}"
+        domain_admin_password: "{{ ad_join_password }}"
+        domain_ou_path: "{{ ad_domain_ou }}"
+        state: domain
+        reboot: false
+      register: domain_join
+      no_log: true
+
+    - name: Reboot after domain join when needed
+      ansible.windows.win_reboot:
+        reboot_timeout: 1800
+      when: domain_join.reboot_required | default(false)
+
+    - name: Verify domain membership
+      ansible.windows.win_powershell:
+        script: |
+          $computer = Get-CimInstance Win32_ComputerSystem
+          $Ansible.Result = @{
+            Domain = $computer.Domain
+            PartOfDomain = [bool]$computer.PartOfDomain
+          }
+      register: domain_status
+
+    - name: Assert expected domain membership
+      ansible.builtin.assert:
+        that:
+          - domain_status.result.PartOfDomain | bool
+          - domain_status.result.Domain | lower == ad_domain_name | lower
+        fail_msg: 'Domain membership verification failed.'
+
+    - name: Show successful outcome
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} patched and joined {{ domain_status.result.Domain }}"

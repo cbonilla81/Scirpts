@@ -1,0 +1,18 @@
+services:
+  datamover:
+    build: .
+    env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./state:/state
+      - ./rclone:/opt/datamover/.config/rclone:ro
+      # Add source and destination bind mounts here, as needed.
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp

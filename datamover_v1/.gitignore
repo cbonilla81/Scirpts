@@ -1,0 +1,6 @@
+.env
+state/
+rclone/
+__pycache__/
+.pytest_cache/
+*.pyc
