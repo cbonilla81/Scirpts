@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10263e">
+  <title>Sign in | DataMover Enterprise Demo</title>
+  <style>
+    :root {
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      color: #172b43;
+      background: #f3f6fa;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+      --navy: #10263e;
+      --blue: #2874d0;
+      --muted: #74849a;
+    }
+
+    * { box-sizing: border-box; }
+    body { min-width: 320px; min-height: 100vh; margin: 0; }
+    button, input { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    .page { display: grid; min-height: 100vh; grid-template-columns: minmax(0, 1fr) minmax(420px, .82fr); }
+    .brand-side {
+      position: relative;
+      display: flex;
+      min-height: 100vh;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+      padding: 38px clamp(35px, 7vw, 104px) 28px;
+      color: #f1f6fc;
+      background:
+        radial-gradient(ellipse at 75% 30%, #25558777, transparent 38%),
+        radial-gradient(ellipse at 15% 82%, #17634b55, transparent 34%),
+        var(--navy);
+    }
+    .brand-side::after {
+      position: absolute;
+      right: -120px;
+      bottom: 8%;
+      width: 430px;
+      height: 430px;
+      border: 1px solid #ffffff0d;
+      border-radius: 50%;
+      box-shadow: 0 0 0 50px #ffffff08, 0 0 0 100px #ffffff05;
+      content: "";
+      pointer-events: none;
+    }
+    .brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border: 1px solid #ffffff30;
+      border-radius: 13px;
+      color: white;
+      background: linear-gradient(145deg, #398af0, #1658aa);
+      font-size: 23px;
+      font-weight: 700;
+    }
+    .brand-name { font-size: 16px; font-weight: 700; letter-spacing: -.3px; }
+    .brand-sub { margin-top: 3px; color: #9cacc1; font-size: 10px; letter-spacing: 1.25px; text-transform: uppercase; }
+    .hero { position: relative; z-index: 1; max-width: 540px; margin: 60px 0 80px; }
+    .eyebrow { color: #82b8f5; font-size: 10px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; }
+    h1 { margin: 19px 0 16px; font-size: clamp(32px, 4vw, 50px); font-weight: 650; letter-spacing: -1.7px; line-height: 1.12; }
+    .hero-copy { max-width: 440px; color: #bac9d9; font-size: 14px; line-height: 1.8; }
+    .feature-list { display: grid; gap: 16px; margin-top: 37px; }
+    .feature { display: flex; align-items: center; gap: 12px; color: #d3deeb; font-size: 12px; }
+    .feature-icon { display: grid; width: 29px; height: 29px; flex: 0 0 29px; place-items: center; border: 1px solid #ffffff1c; border-radius: 9px; color: #86bbfa; background: #ffffff0a; }
+    .brand-foot { position: relative; z-index: 1; color: #7f93aa; font-size: 10px; }
+    .form-side { display: grid; min-height: 100vh; place-items: center; padding: 34px; background: #fff; }
+    .form-wrap { width: min(100%, 370px); }
+    .rsandh-logo { display: block; width: 142px; height: auto; margin: 0 0 22px; }
+    .demo-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #f0dda9; border-radius: 20px; color: #89680f; background: #fff9e9; font-size: 9px; font-weight: 700; letter-spacing: .55px; }
+    .demo-chip::before { width: 6px; height: 6px; border-radius: 50%; background: #dba82a; content: ""; }
+    h2 { margin: 23px 0 7px; color: #1a304a; font-size: 24px; letter-spacing: -.6px; }
+    .intro { margin: 0 0 26px; color: #7c8b9d; font-size: 12px; line-height: 1.6; }
+    .field { margin-bottom: 16px; }
+    label { display: block; margin-bottom: 7px; color: #435870; font-size: 10px; font-weight: 650; }
+    input {
+      width: 100%;
+      min-height: 43px;
+      padding: 0 12px;
+      border: 1px solid #dfe6ef;
+      border-radius: 8px;
+      outline: none;
+      color: #30455d;
+      background: #fff;
+      font-size: 11px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input::placeholder { color: #a4afbb; }
+    input:focus { border-color: #7faee7; box-shadow: 0 0 0 3px #2874d014; }
+    .password-wrap { position: relative; }
+    .password-wrap input { padding-right: 61px; }
+    .show-password { position: absolute; top: 0; right: 3px; min-height: 43px; padding: 0 9px; border: 0; color: #59718c; background: transparent; font-size: 10px; font-weight: 600; }
+    .form-options { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 0 21px; }
+    .remember { display: inline-flex; align-items: center; gap: 7px; color: #718197; font-size: 10px; cursor: pointer; }
+    .remember input { width: 14px; min-height: 14px; height: 14px; margin: 0; accent-color: var(--blue); }
+    .text-link { border: 0; padding: 0; color: #3478c8; background: none; font-size: 10px; font-weight: 600; text-decoration: none; }
+    .submit {
+      display: flex;
+      width: 100%;
+      min-height: 43px;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: 1px solid var(--blue);
+      border-radius: 8px;
+      color: #fff;
+      background: var(--blue);
+      box-shadow: 0 4px 10px #2874d026;
+      font-size: 11px;
+      font-weight: 650;
+      cursor: pointer;
+      transition: background .15s, transform .15s;
+    }
+    .submit:hover { transform: translateY(-1px); background: #1d63bb; }
+    .divider { display: flex; align-items: center; gap: 12px; margin: 21px 0; color: #a0aab6; font-size: 9px; }
+    .divider::before, .divider::after { height: 1px; flex: 1; background: #edf0f4; content: ""; }
+    .sso-button {
+      display: flex;
+      width: 100%;
+      min-height: 41px;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: 1px solid #dfe6ef;
+      border-radius: 8px;
+      color: #465b72;
+      background: white;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .sso-mark { color: #4386d1; font-size: 15px; }
+    .demo-note { margin-top: 20px; padding: 11px 12px; border: 1px solid #e8eef5; border-radius: 8px; color: #718197; background: #f7f9fc; font-size: 9px; line-height: 1.6; }
+    .demo-note strong { color: #4c627a; }
+    .error { display: none; margin: -7px 0 13px; color: #b04242; font-size: 10px; }
+    .error.show { display: block; }
+    .copyright { margin-top: 25px; color: #a0aab6; font-size: 9px; text-align: center; }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #2874d04d; outline-offset: 2px; }
+    @media (max-width: 850px) {
+      .page { grid-template-columns: minmax(0, .9fr) minmax(370px, 1fr); }
+      .brand-side { padding-right: 34px; padding-left: 34px; }
+      .hero-copy { font-size: 12px; }
+      .form-side { padding: 26px; }
+    }
+    @media (max-width: 650px) {
+      .page { grid-template-columns: 1fr; }
+      .brand-side { min-height: auto; padding: 21px 22px 24px; }
+      .brand-mark { width: 36px; height: 36px; font-size: 20px; }
+      .hero { margin: 34px 0 4px; }
+      .hero h1 { margin: 12px 0 9px; font-size: 29px; }
+      .hero-copy { font-size: 11px; }
+      .feature-list, .brand-foot { display: none; }
+      .form-side { min-height: auto; padding: 28px 22px 32px; }
+      .form-wrap { max-width: 420px; }
+      h2 { margin-top: 15px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="brand-side" aria-label="About DataMover">
+      <a class="brand" href="./demo.html" aria-label="DataMover demo dashboard">
+        <span class="brand-mark" aria-hidden="true">◈</span>
+        <span><span class="brand-name">DataMover</span><span class="brand-sub" style="display:block">Enterprise console</span></span>
+      </a>
+      <div class="hero">
+        <div class="eyebrow">Migration operations, made clear</div>
+        <h1>Move your data.<br>Stay in control.</h1>
+        <p class="hero-copy">A unified view of migration jobs, validation, and the operator-led steps that help teams plan a confident cutover.</p>
+        <div class="feature-list">
+          <div class="feature"><span class="feature-icon" aria-hidden="true">⇄</span> Track migration jobs and transfer status</div>
+          <div class="feature"><span class="feature-icon" aria-hidden="true">✓</span> Validate before approving a cutover</div>
+          <div class="feature"><span class="feature-icon" aria-hidden="true">◇</span> Keep safeguards and operator actions visible</div>
+        </div>
+      </div>
+      <div class="brand-foot">DataMover Enterprise · Presentation environment</div>
+    </section>
+
+    <section class="form-side" aria-label="Demo sign in">
+      <div class="form-wrap">
+        <img class="rsandh-logo" src="../../RS&amp;H_Logo.png" alt="RS&amp;H">
+        <span class="demo-chip">PRESENTATION DEMO</span>
+        <h2>Welcome back</h2>
+        <p class="intro">Sign in to explore the DataMover migration console.</p>
+        <form id="login-form">
+          <div class="field">
+            <label for="email">Work email</label>
+            <input id="email" name="email" type="email" autocomplete="username" placeholder="you@company.com" required>
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="password-wrap">
+              <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter any demo password" required>
+              <button class="show-password" id="toggle-password" type="button" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
+          </div>
+          <div class="form-options">
+            <label class="remember"><input type="checkbox" name="remember"> Remember me</label>
+            <button class="text-link" id="help-link" type="button">Need help?</button>
+          </div>
+          <div class="error" id="login-error" role="alert"></div>
+          <button class="submit" type="submit">Sign in to demo <span aria-hidden="true">→</span></button>
+        </form>
+        <div class="divider">OR</div>
+        <button class="sso-button" id="demo-account" type="button"><span class="sso-mark" aria-hidden="true">◈</span> Continue as demo operator</button>
+        <div class="demo-note"><strong>Demo only.</strong> Any valid email address and a non-empty password will continue to the sample dashboard. No credentials are sent or stored; this screen does not authenticate with Entra ID or the DataMover API.</div>
+        <div class="copyright">© DataMover Enterprise · Sample interface only</div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const form = document.getElementById("login-form");
+    const email = document.getElementById("email");
+    const password = document.getElementById("password");
+    const error = document.getElementById("login-error");
+
+    function enterDemo() {
+      window.location.href = "./demo.html";
+    }
+
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      error.classList.remove("show");
+      enterDemo();
+    });
+
+    document.getElementById("demo-account").addEventListener("click", enterDemo);
+    document.getElementById("toggle-password").addEventListener("click", event => {
+      const visible = password.type === "password";
+      password.type = visible ? "text" : "password";
+      event.currentTarget.textContent = visible ? "Hide" : "Show";
+      event.currentTarget.setAttribute("aria-label", visible ? "Hide password" : "Show password");
+      event.currentTarget.setAttribute("aria-pressed", String(visible));
+    });
+    document.getElementById("help-link").addEventListener("click", () => {
+      error.textContent = "This is a demo sign-in. Use any valid email and a non-empty password, or continue as the demo operator.";
+      error.classList.add("show");
+    });
+    if (new URLSearchParams(window.location.search).has("signedout")) {
+      email.focus();
+    }
+  </script>
+</body>
+</html>

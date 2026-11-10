@@ -2,6 +2,12 @@
 
 A deployable, single-controller migration and replication console for Windows and Linux. Includes an HTML dashboard, REST API, persistent jobs and events, scheduled copies, validation, and operator-gated final cutover.
 
+## Presentation demo
+Open `app/static/demo-login.html` directly in a browser, or visit `/static/demo-login.html` while the app is running, to start the presentation demo. The sign-in accepts any valid email and non-empty password (or use **Continue as demo operator**) and opens `app/static/demo.html`; **Sign out** on the dashboard returns to the login screen. The RS&H logo appears on both demo screens and is served from the project-root `RS&H_Logo.png`. This is a visual mock only: it does not authenticate users or contact the DataMover API. The dashboard supports job selection, status filtering, and adding sample jobs; it does not start transfers. Its progress values and activity are illustrative only. Use `/` for the live, API-connected dashboard.
+
+## Recommended next development phase
+Before production deployment, prioritize Entra ID authentication and role-based access, distributed migration workers, trustworthy transfer statistics and ETAs, notifications, and provider-specific permission auditing. For 10–100 TB environments, distributed workers and accurate transfer monitoring are especially important to validate at representative scale. These are recommendations, not capabilities currently implemented in v1.
+
 ## What works
 - `rclone copy` transfers supported local, SFTP, SMB-mounted, S3, Azure Blob, and other configured rclone remotes without deleting destination-only files.
 - `rclone check --one-way` compares source objects against destination (size/hash where backend supports it); this is not a universal bit-for-bit proof and cloud backends may lack matching hashes.

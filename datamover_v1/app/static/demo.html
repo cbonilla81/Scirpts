@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10263e">
+  <title>DataMover Enterprise | Presentation Demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      color: #172b43;
+      background: #f4f7fb;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+      --navy: #10263e;
+      --blue: #2874d0;
+      --muted: #74849a;
+      --line: #e5eaf1;
+      --green: #17865c;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    .app { min-height: 100vh; }
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 2;
+      display: flex;
+      width: 248px;
+      flex-direction: column;
+      padding: 25px 17px 18px;
+      color: #e9f1fb;
+      background: var(--navy);
+    }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 0 9px 31px; }
+    .brand-mark {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border: 1px solid #ffffff35;
+      border-radius: 12px;
+      color: #fff;
+      background: linear-gradient(145deg, #398af0, #1658aa);
+      font-size: 21px;
+      font-weight: 700;
+    }
+    .brand-name { font-size: 15px; font-weight: 700; letter-spacing: -.3px; }
+    .brand-sub { margin-top: 3px; color: #9cacc1; font-size: 10px; letter-spacing: 1.15px; text-transform: uppercase; }
+    .nav-label { padding: 5px 11px 9px; color: #8193aa; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; }
+    .nav { display: grid; gap: 5px; }
+    .nav a {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 12px;
+      border-radius: 8px;
+      color: #b6c4d5;
+      font-size: 13px;
+      text-decoration: none;
+    }
+    .nav a:hover, .nav a.active { color: white; background: #ffffff14; }
+    .nav a.active { box-shadow: inset 3px 0 #57a0ff; }
+    .nav-icon { width: 18px; color: #9eafc5; text-align: center; font-size: 15px; }
+    .nav a.active .nav-icon { color: #78b3ff; }
+    .sidebar-spacer { flex: 1; }
+    .controller {
+      padding: 14px;
+      border: 1px solid #ffffff1c;
+      border-radius: 10px;
+      background: #ffffff08;
+    }
+    .controller-title { margin-bottom: 8px; color: #a7b6c8; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+    .controller-state { display: flex; align-items: center; gap: 8px; color: #e2ebf5; font-size: 12px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #43cf91; box-shadow: 0 0 0 3px #43cf9124; }
+    .controller small { display: block; margin-top: 7px; color: #8799af; font-size: 10px; }
+    .profile { display: flex; align-items: center; gap: 10px; padding: 18px 7px 0; }
+    .avatar { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; color: #dceaff; background: #315176; font-size: 11px; font-weight: 700; }
+    .profile-name { color: #e4ecf7; font-size: 11px; font-weight: 600; }
+    .profile-role { margin-top: 3px; color: #899bb1; font-size: 10px; }
+    .main { min-height: 100vh; margin-left: 248px; }
+    .topbar {
+      display: flex;
+      min-height: 76px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 0 34px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    .crumb { color: #8a98aa; font-size: 11px; }
+    .crumb strong { color: #2b3d54; font-weight: 600; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .demo-badge { padding: 7px 10px; border: 1px solid #f1d89c; border-radius: 20px; color: #93670b; background: #fff8e6; font-size: 10px; font-weight: 700; letter-spacing: .3px; }
+    .rsandh-logo { display: block; width: 94px; height: auto; }
+    .icon-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 9px; color: #576b81; background: white; font-size: 14px; }
+    .content { max-width: 1450px; margin: auto; padding: 29px 34px 32px; }
+    .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 21px; }
+    h1 { margin: 0; color: #152b43; font-size: 25px; letter-spacing: -.65px; }
+    .subtitle { margin-top: 7px; color: var(--muted); font-size: 12px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 37px;
+      padding: 0 13px;
+      border: 1px solid #dfe6ef;
+      border-radius: 8px;
+      color: #3c526b;
+      background: white;
+      font-size: 11px;
+      font-weight: 650;
+      transition: background .15s, transform .15s;
+    }
+    .button:hover { background: #f7f9fc; transform: translateY(-1px); }
+    .button.primary { border-color: var(--blue); color: white; background: var(--blue); box-shadow: 0 3px 8px #2874d026; }
+    .button.primary:hover { background: #1d63bb; }
+    .button.dark { border-color: #203b5a; color: white; background: #203b5a; }
+    .button:focus-visible, .icon-button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #2874d04d; outline-offset: 2px; }
+    .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .kpi, .panel {
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: white;
+      box-shadow: 0 2px 8px #19314d05;
+    }
+    .kpi { padding: 16px 18px; }
+    .kpi-top { display: flex; align-items: center; justify-content: space-between; color: #78889b; font-size: 11px; }
+    .kpi-icon { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 8px; color: #3978c6; background: #eef5ff; font-size: 14px; }
+    .kpi-value { margin-top: 11px; color: #182e47; font-size: 26px; font-weight: 700; letter-spacing: -.7px; }
+    .kpi-foot { display: flex; align-items: center; gap: 5px; margin-top: 5px; color: #8593a4; font-size: 10px; }
+    .trend { color: var(--green); font-weight: 700; }
+    .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(290px, .85fr); gap: 15px; margin-top: 16px; }
+    .panel { min-width: 0; padding: 18px; }
+    .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+    h2 { margin: 0; color: #1d324b; font-size: 14px; letter-spacing: -.15px; }
+    .panel-sub { margin-top: 5px; color: #8b98a8; font-size: 10px; }
+    .select {
+      min-height: 31px;
+      padding: 0 26px 0 9px;
+      border: 1px solid #e1e7ef;
+      border-radius: 7px;
+      color: #52657b;
+      background: white;
+      font-size: 10px;
+    }
+    .jobs-table { width: 100%; margin-top: 15px; border-collapse: collapse; text-align: left; }
+    .jobs-table th { padding: 9px 8px; border-bottom: 1px solid #edf0f5; color: #8a97a8; font-size: 9px; font-weight: 650; letter-spacing: .5px; text-transform: uppercase; }
+    .jobs-table td { padding: 12px 8px; border-bottom: 1px solid #f0f2f6; color: #52647a; font-size: 10px; vertical-align: middle; }
+    .jobs-table tbody tr { cursor: pointer; transition: background .12s; }
+    .jobs-table tbody tr:hover, .jobs-table tbody tr.selected { background: #f5f9ff; }
+    .jobs-table tbody tr:last-child td { border-bottom: 0; }
+    .job-name { color: #263b54; font-size: 11px; font-weight: 650; }
+    .job-id { margin-top: 4px; color: #9aa5b2; font-size: 9px; }
+    .route { max-width: 245px; overflow: hidden; color: #64758a; text-overflow: ellipsis; white-space: nowrap; }
+    .status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 20px; font-size: 9px; font-weight: 650; white-space: nowrap; }
+    .status::before { width: 5px; height: 5px; border-radius: 50%; background: currentColor; content: ""; }
+    .status.running { color: #286fc0; background: #edf5ff; }
+    .status.ready { color: #147852; background: #eaf7f0; }
+    .status.queued { color: #9a6a0a; background: #fff6df; }
+    .status.complete { color: #526d8b; background: #edf2f7; }
+    .progress-cell { min-width: 112px; }
+    .progress-label { display: flex; justify-content: space-between; margin-bottom: 5px; color: #75859a; font-size: 9px; }
+    .progress-track { height: 5px; overflow: hidden; border-radius: 8px; background: #edf0f5; }
+    .progress-fill { height: 100%; border-radius: inherit; background: #3c83db; }
+    .table-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 9px; padding-top: 11px; border-top: 1px solid #f0f2f6; color: #929eac; font-size: 9px; }
+    .text-link { border: 0; color: #3478c8; background: none; font-size: 10px; font-weight: 650; }
+    .detail-panel { padding-bottom: 14px; }
+    .selected-job { margin-top: 15px; padding: 13px; border: 1px solid #eaf0f6; border-radius: 9px; background: #fbfcfe; }
+    .selected-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .selected-title strong { color: #263b54; font-size: 12px; }
+    .selected-title small { display: block; margin-top: 4px; color: #98a3b1; font-size: 9px; }
+    .endpoints { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; }
+    .endpoint { min-width: 0; padding: 9px; border: 1px solid #edf0f5; border-radius: 7px; background: white; }
+    .endpoint-label { color: #94a0ae; font-size: 8px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; }
+    .endpoint-value { margin-top: 5px; overflow: hidden; color: #50647b; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .selected-progress { margin-top: 14px; }
+    .selected-progress .progress-track { height: 6px; }
+    .meta-row { display: flex; justify-content: space-between; gap: 10px; margin-top: 11px; color: #8794a4; font-size: 9px; }
+    .meta-row strong { color: #52657b; font-weight: 600; }
+    .action-row { display: flex; gap: 7px; margin-top: 13px; }
+    .action-row .button { flex: 1; min-height: 32px; padding: 0 8px; font-size: 9px; }
+    .cutover-panel { margin-top: 14px; }
+    .cutover-steps { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 17px; }
+    .step { position: relative; min-width: 0; text-align: center; }
+    .step:not(:last-child)::after { position: absolute; top: 11px; left: calc(50% + 15px); width: calc(100% - 30px); height: 1px; background: #e2e8ef; content: ""; }
+    .step.done:not(:last-child)::after { background: #7bc6a3; }
+    .step-circle { position: relative; z-index: 1; display: grid; width: 23px; height: 23px; place-items: center; margin: auto; border: 1px solid #dce3ec; border-radius: 50%; color: #92a0b0; background: white; font-size: 9px; }
+    .step.done .step-circle { border-color: #28a36e; color: white; background: #28a36e; }
+    .step.current .step-circle { border: 2px solid #4285d5; color: #3478c8; box-shadow: 0 0 0 3px #4285d51c; }
+    .step-label { margin-top: 8px; color: #8794a4; font-size: 8px; }
+    .step.done .step-label, .step.current .step-label { color: #435a73; font-weight: 650; }
+    .lower-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(290px, .85fr); gap: 15px; margin-top: 15px; }
+    .events { margin-top: 13px; }
+    .event { display: grid; grid-template-columns: 26px 1fr auto; gap: 9px; align-items: start; padding: 10px 0; border-top: 1px solid #f0f2f6; }
+    .event-icon { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; color: #397ac5; background: #eef5ff; font-size: 10px; }
+    .event-icon.success { color: #16835a; background: #eaf7f0; }
+    .event-icon.warning { color: #a97713; background: #fff6df; }
+    .event-copy { color: #51657b; font-size: 10px; line-height: 1.45; }
+    .event-copy strong { color: #30455d; font-weight: 650; }
+    .event-time { color: #9aa5b2; font-size: 9px; white-space: nowrap; }
+    .safeguards { display: grid; grid-template-columns: 1fr 1fr; gap: 11px 9px; margin-top: 14px; }
+    .safeguard { display: flex; align-items: center; gap: 7px; color: #5d7085; font-size: 9px; }
+    .check { display: grid; width: 16px; height: 16px; flex: 0 0 16px; place-items: center; border-radius: 50%; color: #16835a; background: #e9f7ef; font-size: 9px; font-weight: 700; }
+    .guard-note { margin-top: 15px; padding: 10px; border: 1px solid #f1e4be; border-radius: 7px; color: #826b3d; background: #fffbf0; font-size: 9px; line-height: 1.5; }
+    .roadmap-panel { margin-top: 15px; }
+    .roadmap-intro { max-width: 660px; margin-top: 5px; color: #8492a3; font-size: 10px; line-height: 1.55; }
+    .roadmap-priority { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid #cfe2fa; border-radius: 20px; color: #326da9; background: #f0f7ff; font-size: 9px; font-weight: 650; white-space: nowrap; }
+    .roadmap-priority::before { width: 6px; height: 6px; border-radius: 50%; background: #4a8bd2; content: ""; }
+    .roadmap-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+    .roadmap-item { min-width: 0; padding: 13px; border: 1px solid #e9eef4; border-radius: 9px; background: #fcfdff; }
+    .roadmap-item.priority { border-color: #d6e5f7; background: #f7faff; }
+    .roadmap-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; color: #3978c6; background: #edf4fe; font-size: 13px; }
+    .roadmap-item h3 { margin: 11px 0 5px; color: #30455d; font-size: 10px; }
+    .roadmap-item p { min-height: 42px; margin: 0; color: #7e8d9f; font-size: 9px; line-height: 1.5; }
+    .roadmap-tag { display: inline-block; margin-top: 10px; padding: 4px 6px; border-radius: 5px; color: #708197; background: #eef2f6; font-size: 8px; font-weight: 650; }
+    .roadmap-item.priority .roadmap-tag { color: #326da9; background: #e6f0fc; }
+    .footer { margin-top: 18px; color: #9aa5b2; font-size: 9px; text-align: center; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 5; display: none; place-items: center; padding: 20px; background: #0e223bd1; }
+    .modal-backdrop.open { display: grid; }
+    .modal { width: min(460px, 100%); padding: 23px; border-radius: 13px; background: white; box-shadow: 0 20px 70px #071a2c55; }
+    .modal-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+    .modal-head h2 { font-size: 17px; }
+    .modal-head p { margin: 6px 0 0; color: #8290a1; font-size: 11px; }
+    .close { border: 0; color: #718196; background: none; font-size: 20px; }
+    .field { margin-bottom: 13px; }
+    .field label { display: block; margin-bottom: 6px; color: #52657b; font-size: 10px; font-weight: 650; }
+    .field input, .field select { width: 100%; min-height: 37px; padding: 0 10px; border: 1px solid #dfe6ef; border-radius: 7px; color: #344a62; background: white; font-size: 11px; }
+    .modal-note { margin: 5px 0 17px; padding: 10px; border-radius: 7px; color: #62758b; background: #f3f7fc; font-size: 9px; line-height: 1.5; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .toast { position: fixed; right: 24px; bottom: 22px; z-index: 7; max-width: 360px; padding: 12px 15px; border: 1px solid #dce8f4; border-radius: 9px; color: #29455f; background: white; box-shadow: 0 8px 30px #152b4320; font-size: 11px; opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    @media (max-width: 1100px) {
+      .sidebar { width: 212px; }
+      .main { margin-left: 212px; }
+      .content { padding-right: 22px; padding-left: 22px; }
+      .topbar { padding-right: 22px; padding-left: 22px; }
+      .dashboard-grid, .lower-grid { grid-template-columns: minmax(0, 1.35fr) minmax(260px, .9fr); }
+      .jobs-table th:nth-child(3), .jobs-table td:nth-child(3) { display: none; }
+      .jobs-table th:nth-child(2), .jobs-table td:nth-child(2) { display: none; }
+    }
+    @media (max-width: 800px) {
+      .sidebar { position: static; width: auto; min-height: auto; padding: 13px 17px; }
+      .brand { padding: 0; }
+      .sidebar .nav-label, .sidebar .nav, .sidebar-spacer, .controller, .profile { display: none; }
+      .main { margin-left: 0; }
+      .topbar { min-height: 58px; }
+      .content { padding-top: 22px; }
+      .dashboard-grid, .lower-grid { grid-template-columns: 1fr; }
+      .detail-panel { grid-row: 1; }
+    }
+    @media (max-width: 560px) {
+      .topbar { padding: 0 15px; }
+      .content { padding: 19px 14px 26px; }
+      .page-heading { align-items: flex-start; }
+      h1 { font-size: 21px; }
+      .kpis { grid-template-columns: repeat(2, 1fr); gap: 9px; }
+      .kpi { padding: 12px; }
+      .kpi-value { font-size: 22px; }
+      .kpi-top { font-size: 10px; }
+      .panel { padding: 14px; }
+      .jobs-table th:nth-child(4), .jobs-table td:nth-child(4) { display: none; }
+      .route { max-width: 130px; }
+      .progress-cell { min-width: 72px; }
+      .cutover-steps { margin-right: -6px; margin-left: -6px; }
+      .step-label { font-size: 7px; }
+      .safeguards { grid-template-columns: 1fr; }
+      .demo-badge { font-size: 9px; }
+      .roadmap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .roadmap-item p { min-height: 0; }
+      .roadmap-priority { font-size: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">◈</div>
+        <div><div class="brand-name">DataMover</div><div class="brand-sub">Enterprise console</div></div>
+      </div>
+      <div class="nav-label">Workspace</div>
+      <nav class="nav">
+        <a class="active" href="#overview"><span class="nav-icon">▦</span> Overview</a>
+        <a href="#jobs-section"><span class="nav-icon">⇄</span> Migration jobs</a>
+        <a href="#events-section"><span class="nav-icon">◷</span> Activity &amp; events</a>
+        <a href="#safeguards"><span class="nav-icon">◇</span> Safeguards</a>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="controller">
+        <div class="controller-title">Controller status</div>
+        <div class="controller-state"><span class="dot"></span> All systems operational</div>
+        <small>Single-instance · Demo environment</small>
+      </div>
+      <div class="profile">
+        <div class="avatar">OP</div>
+        <div><div class="profile-name">Demo Operator</div><div class="profile-role">Migration administrator</div></div>
+      </div>
+    </aside>
+
+    <main class="main" id="overview">
+      <header class="topbar">
+        <div class="crumb">Workspace <span aria-hidden="true">/</span> <strong>Overview</strong></div>
+        <div class="top-actions">
+          <img class="rsandh-logo" src="../../RS&amp;H_Logo.png" alt="RS&amp;H">
+          <span class="demo-badge">● PRESENTATION DEMO</span>
+          <button class="icon-button" id="refresh-button" aria-label="Refresh demo" title="Reset demo data">↻</button>
+          <a class="button" href="./demo-login.html?signedout">Sign out</a>
+        </div>
+      </header>
+
+      <div class="content">
+        <section class="page-heading">
+          <div>
+            <h1>Migration overview</h1>
+            <div class="subtitle">A clear view of your transfers, validation, and controlled cutover readiness.</div>
+          </div>
+          <button class="button primary" id="new-job"><span aria-hidden="true">＋</span> New migration</button>
+        </section>
+
+        <section class="kpis" aria-label="Migration summary">
+          <article class="kpi"><div class="kpi-top">Total jobs <span class="kpi-icon">⇄</span></div><div class="kpi-value" id="total-jobs">04</div><div class="kpi-foot"><span class="trend">+1</span> this month</div></article>
+          <article class="kpi"><div class="kpi-top">Transfers active <span class="kpi-icon">↗</span></div><div class="kpi-value" id="active-jobs">01</div><div class="kpi-foot">Across configured workers</div></article>
+          <article class="kpi"><div class="kpi-top">Validation passed <span class="kpi-icon">✓</span></div><div class="kpi-value" id="validated-jobs">02</div><div class="kpi-foot"><span class="trend">Ready</span> for next step</div></article>
+          <article class="kpi"><div class="kpi-top">Cutovers complete <span class="kpi-icon">⌁</span></div><div class="kpi-value" id="complete-jobs">01</div><div class="kpi-foot">Operator-confirmed handoff</div></article>
+        </section>
+
+        <div class="dashboard-grid">
+          <section class="panel" id="jobs-section">
+            <div class="panel-heading">
+              <div><h2>Migration jobs</h2><div class="panel-sub">Monitor runs and inspect each migration at a glance.</div></div>
+              <select class="select" id="job-filter" aria-label="Filter jobs">
+                <option value="all">All jobs</option><option value="running">Running</option><option value="ready">Ready</option><option value="queued">Queued</option><option value="complete">Complete</option>
+              </select>
+            </div>
+            <div style="overflow-x:auto">
+              <table class="jobs-table">
+                <thead><tr><th>Job</th><th>Source → destination</th><th>Engine</th><th>Status</th><th>Progress</th></tr></thead>
+                <tbody id="jobs-body"></tbody>
+              </table>
+            </div>
+            <div class="table-foot"><span>Showing <strong id="shown-jobs">4</strong> sample jobs</span><span>Sample data · not connected to a controller</span></div>
+          </section>
+
+          <section class="panel detail-panel" aria-live="polite">
+            <div class="panel-heading"><div><h2>Selected migration</h2><div class="panel-sub">Quick status and transfer details.</div></div><button class="text-link" id="inspect-button">View details ↗</button></div>
+            <div class="selected-job" id="selected-job"></div>
+            <div class="action-row">
+              <button class="button" id="dry-run">Dry run</button>
+              <button class="button primary" id="run-sync">Run sync</button>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel cutover-panel" aria-label="Cutover workflow">
+          <div class="panel-heading"><div><h2>Controlled cutover workflow</h2><div class="panel-sub">Operator gates keep the final transition deliberate and auditable.</div></div><span class="status ready">SAFEGUARDED</span></div>
+          <div class="cutover-steps" aria-label="Workflow steps">
+            <div class="step done"><div class="step-circle">✓</div><div class="step-label">Dry run</div></div>
+            <div class="step done"><div class="step-circle">✓</div><div class="step-label">Validate</div></div>
+            <div class="step current"><div class="step-circle">3</div><div class="step-label">Approve</div></div>
+            <div class="step"><div class="step-circle">4</div><div class="step-label">Final sync</div></div>
+            <div class="step"><div class="step-circle">5</div><div class="step-label">Verify &amp; handoff</div></div>
+          </div>
+        </section>
+
+        <div class="lower-grid">
+          <section class="panel" id="events-section">
+            <div class="panel-heading"><div><h2>Recent activity</h2><div class="panel-sub">A sample of operator and worker events.</div></div><button class="text-link" id="all-events">View event history →</button></div>
+            <div class="events">
+              <div class="event"><div class="event-icon">↗</div><div class="event-copy"><strong>Baseline copy in progress</strong><br>Finance shared drive · rclone worker started transfer.</div><div class="event-time">2 min ago</div></div>
+              <div class="event"><div class="event-icon success">✓</div><div class="event-copy"><strong>Validation completed successfully</strong><br>Engineering archive · one-way comparison passed.</div><div class="event-time">18 min ago</div></div>
+              <div class="event"><div class="event-icon warning">◇</div><div class="event-copy"><strong>Cutover approval recorded</strong><br>HR documents · source freeze attested by operator.</div><div class="event-time">1 hr ago</div></div>
+            </div>
+          </section>
+          <section class="panel" id="safeguards">
+            <div class="panel-heading"><div><h2>Built-in safeguards</h2><div class="panel-sub">Designed for controlled migration operations.</div></div></div>
+            <div class="safeguards">
+              <div class="safeguard"><span class="check">✓</span> Allowlisted storage paths</div>
+              <div class="safeguard"><span class="check">✓</span> No automatic deletion</div>
+              <div class="safeguard"><span class="check">✓</span> API-key protected controls</div>
+              <div class="safeguard"><span class="check">✓</span> Dry run before approval</div>
+              <div class="safeguard"><span class="check">✓</span> Source-freeze attestation</div>
+              <div class="safeguard"><span class="check">✓</span> Verified, manual handoff</div>
+            </div>
+            <div class="guard-note">Cutover approval requires a successful dry run and validation. Client routing changes and rollback remain operator-managed.</div>
+          </section>
+        </div>
+        <section class="panel roadmap-panel" id="roadmap">
+          <div class="panel-heading">
+            <div><h2>Next development phase</h2><div class="roadmap-intro">Recommended capabilities to build and validate before production use. These are roadmap items, not features of the current application.</div></div>
+            <span class="roadmap-priority">10–100 TB priorities: workers + monitoring</span>
+          </div>
+          <div class="roadmap-grid">
+            <article class="roadmap-item">
+              <div class="roadmap-icon" aria-hidden="true">▤</div>
+              <h3>Distributed migration workers</h3>
+              <p>Run work across coordinated workers with durable queues, checkpoints, and recovery.</p>
+              <span class="roadmap-tag">10–100 TB priority</span>
+            </article>
+            <article class="roadmap-item">
+              <div class="roadmap-icon" aria-hidden="true">⌁</div>
+              <h3>Transfer statistics &amp; ETAs</h3>
+              <p>Show reliable throughput, bytes and files transferred, remaining work, and ETA.</p>
+              <span class="roadmap-tag">10–100 TB priority</span>
+            </article>
+            <article class="roadmap-item">
+              <div class="roadmap-icon" aria-hidden="true">♙</div>
+              <h3>Entra ID &amp; role-based access</h3>
+              <p>Replace the shared API key with organizational sign-in and least-privilege roles.</p>
+              <span class="roadmap-tag">Identity &amp; access</span>
+            </article>
+            <article class="roadmap-item">
+              <div class="roadmap-icon" aria-hidden="true">◇</div>
+              <h3>Permission auditing</h3>
+              <p>Compare permissions using provider-specific rules and surface translation gaps.</p>
+              <span class="roadmap-tag">Storage assurance</span>
+            </article>
+            <article class="roadmap-item">
+              <div class="roadmap-icon" aria-hidden="true">◉</div>
+              <h3>Notifications</h3>
+              <p>Alert operators about run completion, failures, validation, and cutover readiness.</p>
+              <span class="roadmap-tag">Operations</span>
+            </article>
+          </div>
+        </section>
+        <footer class="footer">DataMover Enterprise · Presentation-only sample environment · No live transfers or API requests are made.</footer>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="job-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <form class="modal" id="job-form">
+      <div class="modal-head"><div><h2 id="modal-title">Create a migration job</h2><p>Preview how a new transfer would appear in the console.</p></div><button class="close" type="button" id="close-modal" aria-label="Close">×</button></div>
+      <div class="field"><label for="job-name">Job name</label><input id="job-name" name="name" required maxlength="80" placeholder="e.g. Marketing archive"></div>
+      <div class="field"><label for="job-source">Source</label><input id="job-source" name="source" required placeholder="onprem:/share"></div>
+      <div class="field"><label for="job-destination">Destination</label><input id="job-destination" name="destination" required placeholder="azure:container/path"></div>
+      <div class="field"><label for="job-engine">Transfer engine</label><select id="job-engine" name="engine"><option>rclone</option><option>robocopy</option></select></div>
+      <div class="modal-note">This presentation demo stores changes only in this page. It does not create jobs in the DataMover service.</div>
+      <div class="modal-actions"><button class="button" type="button" id="cancel-modal">Cancel</button><button class="button primary" type="submit">Add demo job</button></div>
+    </form>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const initialJobs = [
+      { id: "DM-1042", name: "Finance shared drive", source: "onprem:finance", destination: "azure:corp-files/finance", engine: "rclone", status: "running", progress: 68, schedule: "Every 4 hours", updated: "2 min ago" },
+      { id: "DM-1041", name: "Engineering archive", source: "\\\\FS01\\Engineering", destination: "\\\\FS02\\Engineering", engine: "robocopy", status: "ready", progress: 100, schedule: "Manual", updated: "18 min ago" },
+      { id: "DM-1040", name: "HR documents", source: "onprem:hr-docs", destination: "aws:company-archive/hr", engine: "rclone", status: "queued", progress: 0, schedule: "Daily · 02:00", updated: "1 hr ago" },
+      { id: "DM-1038", name: "Operations handoff", source: "\\\\FS01\\Operations", destination: "\\\\FS03\\Operations", engine: "robocopy", status: "complete", progress: 100, schedule: "Manual", updated: "Yesterday" }
+    ];
+    let jobs = initialJobs.map(job => ({ ...job }));
+    let selectedId = jobs[0].id;
+    let toastTimer;
+    const statusLabels = { running: "Running", ready: "Validated", queued: "Queued", complete: "Complete" };
+    const byId = id => document.getElementById(id);
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[char]);
+
+    function render() {
+      const filter = byId("job-filter").value;
+      const visibleJobs = jobs.filter(job => filter === "all" || job.status === filter);
+      byId("shown-jobs").textContent = visibleJobs.length;
+      byId("jobs-body").innerHTML = visibleJobs.map(job => `
+        <tr data-id="${escapeHtml(job.id)}" class="${job.id === selectedId ? "selected" : ""}" tabindex="0" aria-label="Select ${escapeHtml(job.name)}">
+          <td><div class="job-name">${escapeHtml(job.name)}</div><div class="job-id">${escapeHtml(job.id)}</div></td>
+          <td><div class="route">${escapeHtml(job.source)} → ${escapeHtml(job.destination)}</div></td>
+          <td>${escapeHtml(job.engine)}</td>
+          <td><span class="status ${escapeHtml(job.status)}">${statusLabels[job.status]}</span></td>
+          <td><div class="progress-cell"><div class="progress-label"><span>${job.status === "running" ? "Copying" : job.status === "ready" || job.status === "complete" ? "Finished" : "Not started"}</span><span>${job.progress}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${job.progress}%"></div></div></div></td>
+        </tr>`).join("");
+      byId("total-jobs").textContent = String(jobs.length).padStart(2, "0");
+      byId("active-jobs").textContent = String(jobs.filter(job => job.status === "running").length).padStart(2, "0");
+      byId("validated-jobs").textContent = String(jobs.filter(job => job.status === "ready").length).padStart(2, "0");
+      byId("complete-jobs").textContent = String(jobs.filter(job => job.status === "complete").length).padStart(2, "0");
+
+      const selected = jobs.find(job => job.id === selectedId);
+      if (!selected) {
+        byId("selected-job").innerHTML = '<div class="subtitle">Select a job to see its details.</div>';
+        return;
+      }
+      byId("selected-job").innerHTML = `
+        <div class="selected-title"><div><strong>${escapeHtml(selected.name)}</strong><small>${escapeHtml(selected.id)} · Updated ${escapeHtml(selected.updated)}</small></div><span class="status ${escapeHtml(selected.status)}">${statusLabels[selected.status]}</span></div>
+        <div class="endpoints">
+          <div class="endpoint"><div class="endpoint-label">Source</div><div class="endpoint-value" title="${escapeHtml(selected.source)}">${escapeHtml(selected.source)}</div></div>
+          <div class="endpoint"><div class="endpoint-label">Destination</div><div class="endpoint-value" title="${escapeHtml(selected.destination)}">${escapeHtml(selected.destination)}</div></div>
+        </div>
+        <div class="selected-progress"><div class="progress-label"><span>${selected.status === "running" ? "Transfer status" : "Job status"}</span><strong>${selected.progress}%</strong></div><div class="progress-track"><div class="progress-fill" style="width:${selected.progress}%"></div></div></div>
+        <div class="meta-row"><span>Engine</span><strong>${escapeHtml(selected.engine)}</strong></div>
+        <div class="meta-row"><span>Schedule</span><strong>${escapeHtml(selected.schedule)}</strong></div>`;
+      document.querySelectorAll("#jobs-body tr").forEach(row => {
+        row.addEventListener("click", () => selectJob(row.dataset.id));
+        row.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectJob(row.dataset.id);
+          }
+        });
+      });
+    }
+
+    function selectJob(id) {
+      selectedId = id;
+      render();
+    }
+
+    function showToast(message) {
+      const toast = byId("toast");
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 2800);
+    }
+
+    function closeModal() {
+      byId("job-modal").classList.remove("open");
+    }
+
+    byId("job-filter").addEventListener("change", render);
+    byId("new-job").addEventListener("click", () => {
+      byId("job-modal").classList.add("open");
+      byId("job-name").focus();
+    });
+    byId("close-modal").addEventListener("click", closeModal);
+    byId("cancel-modal").addEventListener("click", closeModal);
+    byId("job-modal").addEventListener("click", event => {
+      if (event.target === byId("job-modal")) closeModal();
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") closeModal();
+    });
+    byId("job-form").addEventListener("submit", event => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const id = `DM-${1043 + jobs.length - initialJobs.length}`;
+      const job = {
+        id,
+        name: form.get("name").trim(),
+        source: form.get("source").trim(),
+        destination: form.get("destination").trim(),
+        engine: form.get("engine"),
+        status: "queued",
+        progress: 0,
+        schedule: "Manual",
+        updated: "Just now"
+      };
+      jobs.unshift(job);
+      selectedId = job.id;
+      byId("job-filter").value = "all";
+      event.currentTarget.reset();
+      closeModal();
+      render();
+      showToast("Demo job added. No controller request was made.");
+    });
+    byId("dry-run").addEventListener("click", () => showToast("Demo only: dry-run preview would be queued."));
+    byId("run-sync").addEventListener("click", () => showToast("Demo only: sync controls are not connected to a worker."));
+    byId("inspect-button").addEventListener("click", () => showToast("Job details are represented by the selected-job panel."));
+    byId("all-events").addEventListener("click", () => showToast("Sample events only. Connect the controller to view live history."));
+    byId("refresh-button").addEventListener("click", () => {
+      jobs = initialJobs.map(job => ({ ...job }));
+      selectedId = jobs[0].id;
+      byId("job-filter").value = "all";
+      render();
+      showToast("Sample dashboard reset.");
+    });
+
+    render();
+  </script>
+</body>
+</html>

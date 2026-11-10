@@ -233,6 +233,10 @@ def startup():
 @app.on_event('shutdown')
 def shutdown(): scheduler.shutdown(wait=False)
 
+@app.get('/RS&H_Logo.png')
+def rsandh_logo():
+    return FileResponse(BASE.parent / 'RS&H_Logo.png', media_type='image/png')
+
 @app.get('/')
 def index(): return FileResponse(BASE / 'static' / 'index.html')
 app.mount('/static', StaticFiles(directory=BASE / 'static'), name='static')
