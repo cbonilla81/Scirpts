@@ -5,8 +5,17 @@ A deployable, single-controller migration and replication console for Windows an
 ## Presentation demo
 Open `app/static/demo-login.html` directly in a browser, or visit `/static/demo-login.html` while the app is running, to start the presentation demo. The sign-in accepts any valid email and non-empty password (or use **Continue as demo operator**) and opens `app/static/demo.html`; **Sign out** on the dashboard returns to the login screen. The RS&H logo appears on both demo screens and is served from the project-root `RS&H_Logo.png`. This is a visual mock only: it does not authenticate users or contact the DataMover API. The dashboard supports job selection, status filtering, and adding sample jobs; it does not start transfers. Its progress values and activity are illustrative only. Use `/` for the live, API-connected dashboard.
 
-## Recommended next development phase
-Before production deployment, prioritize Entra ID authentication and role-based access, distributed migration workers, trustworthy transfer statistics and ETAs, notifications, and provider-specific permission auditing. For 10–100 TB environments, distributed workers and accurate transfer monitoring are especially important to validate at representative scale. These are recommendations, not capabilities currently implemented in v1.
+## Production-readiness roadmap
+Treat production readiness as a set of security, reliability, and recovery requirements, not just a deployment choice. The following capabilities are recommendations and are not all implemented in v1:
+
+1. **Define the operating requirements:** Set expected data volumes, supported providers, concurrent-job needs, uptime and recovery objectives, and whether Windows ACLs must be preserved. Establish measurable acceptance criteria before migration.
+2. **Secure access and credentials:** Add Entra ID/SSO and role-based access; require HTTPS behind a protected proxy or private network; use a secret manager or managed identities for provider credentials. Keep the current API off the public Internet.
+3. **Make jobs durable and recoverable:** Replace SQLite with a production database such as PostgreSQL for multi-user or higher-availability deployments. Separate the API from workers and use a durable queue, job leases/heartbeats, bounded retries, and explicit handling of interrupted jobs. Add pause/cancel controls if required by operators.
+4. **Strengthen transfer and cutover safeguards:** Test each provider's transfer and metadata behavior. Make validation repeatable, keep cutover operator-approved, and document and test rollback procedures. Preserve the non-deleting default unless a separately reviewed requirement changes it.
+5. **Add operational visibility and recovery:** Centralize logs, metrics, and alerts; monitor failed or stalled jobs and storage capacity; back up the database and configuration; and regularly test restore and disaster-recovery procedures.
+6. **Prove the design before rollout:** Pilot representative data volumes, file sizes, permissions, and providers. Test process/worker restarts, network interruptions, duplicate requests, and recovery from partial runs. Do not move critical or 10–100 TB workloads until representative-scale testing meets the agreed acceptance criteria.
+
+Docker Compose on Linux is a reasonable starting point for a controlled pilot or single-controller deployment, but does not provide high availability by itself. For Windows shares where Robocopy or NTFS metadata preservation is required, use a Windows worker with the necessary permissions, even if the control plane runs elsewhere. For 10–100 TB environments, distributed workers and accurate transfer monitoring are especially important to validate at representative scale.
 
 ## What works
 - `rclone copy` transfers supported local, SFTP, SMB-mounted, S3, Azure Blob, and other configured rclone remotes without deleting destination-only files.

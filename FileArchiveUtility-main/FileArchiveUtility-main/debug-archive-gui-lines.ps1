@@ -1,4 +1,4 @@
-$path = 'c:\Users\bonillac\OneDrive - RSandH\Documents\Scirpts\FileArchiveUtility\FileArchiveUtility\FileArchiveUtility\Archive-OldFiles-GUI.ps1'
+$path = Join-Path $PSScriptRoot 'Archive-OldFiles-GUI.ps1'
 $lines = Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop -Delimiter "`n"
 $lines = $lines -split "`r?`n"
 $start = 404

@@ -1,4 +1,4 @@
-$path = 'c:\Users\bonillac\OneDrive - RSandH\Documents\Scirpts\FileArchiveUtility\FileArchiveUtility\FileArchiveUtility\Archive-OldFiles-GUI.ps1'
+$path = Join-Path $PSScriptRoot 'Archive-OldFiles-GUI.ps1'
 $errors = $null
 $tokens = $null
 [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
