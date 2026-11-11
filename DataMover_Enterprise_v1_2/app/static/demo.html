@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#12263a">
+  <title>DataMover Enterprise | Interactive Demo</title>
+  <style>
+    :root {
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      color: #203348;
+      background: #f4f6f8;
+      --navy: #12263a; --blue: #1769aa; --ink: #203348; --muted: #738295;
+      --line: #e2e8ee; --green: #23845c; --shadow: 0 8px 26px rgb(22 46 69 / 5%);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .shell { min-height: 100vh; }
+    aside {
+      position: fixed; inset: 0 auto 0 0; display: flex; width: 248px; flex-direction: column;
+      padding: 26px 18px 20px; color: #d7e2eb; background: var(--navy);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 2px 8px 30px; }
+    .mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: #2576b3; color: white; font-size: 19px; font-weight: 800; }
+    .brand strong { display: block; color: white; font-size: 16px; }
+    .brand small { display: block; margin-top: 3px; color: #9eb2c4; font-size: 10px; letter-spacing: .8px; }
+    .nav-title { padding: 9px 10px; color: #8198ad; font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }
+    .nav-link { display: block; margin: 2px 0; padding: 11px 12px; border-radius: 8px; color: #c2d0dc; font-size: 13px; }
+    .nav-link.active, .nav-link:hover { color: white; background: #203b54; }
+    .side-bottom { margin-top: auto; padding: 15px 10px 0; border-top: 1px solid #2a4054; color: #91a5b7; font-size: 11px; line-height: 1.6; }
+    .side-bottom strong { display: block; color: #e2eaf0; font-size: 12px; }
+    .workspace { min-height: 100vh; margin-left: 248px; }
+    header { display: flex; min-height: 70px; align-items: center; justify-content: flex-end; gap: 12px; padding: 13px 36px; border-bottom: 1px solid var(--line); background: white; }
+    .demo-badge { margin-right: auto; padding: 7px 10px; border-radius: 20px; background: #edf5fb; color: #286c9c; font-size: 10px; font-weight: 750; letter-spacing: .45px; text-transform: uppercase; }
+    .demo-badge:before { display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: #4393c5; content: ""; }
+    .header-link { color: #476074; font-size: 11px; font-weight: 650; }
+    .header-link:hover { color: var(--blue); }
+    main { width: min(1450px, 100%); margin: auto; padding: 30px 36px 45px; }
+    .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; margin-bottom: 22px; }
+    .eyebrow { color: var(--blue); font-size: 10px; font-weight: 750; letter-spacing: 1.15px; text-transform: uppercase; }
+    h1 { margin: 7px 0 6px; color: #19314a; font-size: clamp(24px, 3vw, 31px); letter-spacing: -.8px; }
+    h2 { margin: 0; color: #243a50; font-size: 15px; }
+    h3 { margin: 0; color: #243a50; font-size: 13px; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 13px; }
+    .button { min-height: 36px; padding: 9px 13px; border: 0; border-radius: 7px; background: var(--blue); color: white; font-size: 11px; font-weight: 700; }
+    .button:hover { background: #105687; }
+    .button.secondary { border: 1px solid #d6e0e8; background: white; color: #39566e; }
+    .button.light { background: #edf4f9; color: #28678f; }
+    .card { border: 1px solid var(--line); border-radius: 11px; background: white; box-shadow: var(--shadow); }
+    .sample-warning { display: flex; gap: 10px; margin-bottom: 17px; padding: 12px 14px; border: 1px solid #cfe1ef; border-radius: 9px; background: #f0f7fc; color: #41647c; font-size: 11px; line-height: 1.55; }
+    .sample-warning strong { color: #245c80; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; margin-bottom: 18px; }
+    .metric { padding: 15px 17px; }
+    .metric-label { color: var(--muted); font-size: 11px; }
+    .metric-value { margin-top: 10px; color: #213c55; font-size: 25px; font-weight: 750; letter-spacing: -.7px; }
+    .metric-note { margin-top: 3px; color: #8b98a5; font-size: 10px; }
+    .columns { display: grid; grid-template-columns: minmax(270px, .82fr) minmax(420px, 1.5fr); gap: 17px; }
+    .panel { padding: 18px; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+    .muted { color: var(--muted); font-size: 10px; }
+    .job-list { display: grid; gap: 8px; }
+    .job {
+      width: 100%; padding: 12px; border: 1px solid #e6ebef; border-radius: 8px;
+      background: white; color: var(--ink); text-align: left;
+    }
+    .job.selected { border-color: #5d9dcc; background: #f1f8fd; box-shadow: inset 3px 0 #347fb3; }
+    .job:hover { border-color: #a7c7df; }
+    .job-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .job-name { overflow: hidden; color: #283f55; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .job-path { overflow: hidden; margin-top: 6px; color: #7d8b98; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .pill { padding: 4px 8px; border-radius: 18px; background: #eef2f5; color: #5b6e7c; font-size: 9px; font-weight: 650; text-transform: capitalize; }
+    .pill.success { background: #e8f4ed; color: #1d714f; }
+    .pill.running { background: #e8f3fb; color: #185e8c; }
+    .pill.review { background: #fff3df; color: #96600d; }
+    .create-link { width: 100%; margin-top: 11px; text-align: left; }
+    .detail-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .detail-top h2 { font-size: 17px; }
+    .detail-paths { margin: 13px 0 14px; padding: 11px; border-radius: 7px; background: #f6f8fa; color: #586d80; font: 10px/1.8 Consolas, monospace; overflow-wrap: anywhere; }
+    .detail-paths b { color: #81909d; font: 700 9px "Segoe UI", Arial, sans-serif; letter-spacing: .5px; }
+    .progress-info { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+    .progress-info strong { color: #334d63; font-size: 11px; }
+    .progress-info span { color: #788999; font-size: 10px; }
+    .progress-bar { height: 7px; overflow: hidden; border-radius: 10px; background: #e9eef2; }
+    .progress-bar span { display: block; height: 100%; border-radius: inherit; background: #3d91c5; transition: width .3s ease; }
+    .progress-note { margin: 6px 0 14px; color: #8694a0; font-size: 9px; }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 13px 0 15px; }
+    .step { min-height: 52px; padding: 9px; border: 1px solid #e8edf1; border-radius: 7px; color: #82909d; font-size: 9px; }
+    .step.done { border-color: #d7ebdf; background: #f4faf6; color: #327956; }
+    .step.active { border-color: #f0dfc0; background: #fffaf0; color: #8d641e; }
+    .step-icon { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 750; }
+    .detail-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+    .detail-actions .button { flex: 1 1 110px; }
+    .note { margin: 9px 0 0; color: #8a97a3; font-size: 9px; line-height: 1.5; }
+    .lower { display: grid; grid-template-columns: 1fr 1fr; gap: 17px; margin-top: 17px; }
+    .activity-list { display: grid; gap: 10px; }
+    .activity-row { display: grid; grid-template-columns: 65px 1fr auto; align-items: center; gap: 9px; padding-bottom: 9px; border-bottom: 1px solid #edf0f3; font-size: 10px; }
+    .activity-row:last-child { padding-bottom: 0; border: 0; }
+    .activity-date { color: #8896a2; font-size: 9px; }
+    .activity-text { color: #41576b; }
+    .notice-toast { position: fixed; right: 24px; bottom: 24px; z-index: 4; max-width: min(380px, calc(100vw - 32px)); padding: 13px 16px; border-radius: 9px; background: #173b57; box-shadow: 0 10px 28px rgb(14 35 52 / 22%); color: white; font-size: 11px; line-height: 1.5; opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity .2s, transform .2s; }
+    .notice-toast.visible { opacity: 1; transform: translateY(0); }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 5; display: none; place-items: center; padding: 20px; background: rgb(11 28 43 / 48%); }
+    .modal-backdrop.open { display: grid; }
+    .modal { width: min(450px, 100%); padding: 20px; border-radius: 12px; background: white; box-shadow: 0 20px 50px rgb(0 0 0 / 20%); }
+    .modal p { color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .modal input { width: 100%; padding: 10px; border: 1px solid #d7e0e8; border-radius: 7px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
+    footer { margin-top: 22px; color: #8996a2; font-size: 9px; line-height: 1.6; }
+    @media (max-width: 1000px) {
+      aside { width: 205px; } .workspace { margin-left: 205px; }
+      main { padding: 25px 20px 38px; }
+      .columns { grid-template-columns: minmax(235px, .8fr) minmax(360px, 1.3fr); gap: 12px; }
+      .panel { padding: 14px; }
+    }
+    @media (max-width: 760px) {
+      aside { position: static; width: auto; min-height: auto; padding: 12px 15px; }
+      .brand { padding: 0 3px; } aside nav, .nav-title, .side-bottom { display: none; }
+      .workspace { margin-left: 0; } header { min-height: 54px; padding: 10px 16px; }
+      main { padding: 22px 15px 35px; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .columns, .lower { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .hero { align-items: flex-start; flex-direction: column; }
+      .steps { grid-template-columns: repeat(2, 1fr); }
+      header { gap: 8px; } .header-link { font-size: 9px; }
+      .activity-row { grid-template-columns: 53px 1fr auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <a class="brand" href="#overview"><span class="mark">D</span><span><strong>DataMover</strong><small>ENTERPRISE · v1.2</small></span></a>
+      <div class="nav-title">Workspace</div>
+      <nav aria-label="Demo navigation">
+        <a class="nav-link active" href="#overview">⌂ &nbsp; Overview</a>
+        <a class="nav-link" href="#jobs">▤ &nbsp; Migration jobs</a>
+        <a class="nav-link" href="#cutover">⇄ &nbsp; Cutover control</a>
+        <a class="nav-link" href="#activity">◷ &nbsp; Run history</a>
+      </nav>
+      <div class="side-bottom"><strong>Windows SMB migration</strong>Robocopy worker · Single-host pilot<br>Presentation preview</div>
+    </aside>
+    <div class="workspace">
+      <header>
+        <span class="demo-badge">Interactive demo · Sample data</span>
+        <a class="header-link" href="/">← Back to application</a>
+        <a class="header-link" href="#cutover">Explore workflow ↓</a>
+      </header>
+      <main id="overview">
+        <div class="hero">
+          <div>
+            <div class="eyebrow">Operations / Overview</div>
+            <h1>Migration control center</h1>
+            <p class="subtitle">A guided preview of Windows file-share migration operations.</p>
+          </div>
+          <button class="button" id="newJobButton" type="button">＋ New migration</button>
+        </div>
+        <div class="sample-warning"><span aria-hidden="true">ⓘ</span><div><strong>Presentation preview.</strong> Everything on this page is sample data. Buttons are simulated and do not connect to your API, access file shares or start Robocopy.</div></div>
+        <section class="metrics" aria-label="Sample job summary">
+          <article class="metric card"><div class="metric-label">Migration jobs</div><div class="metric-value" id="metricJobs">03</div><div class="metric-note">2 active · 1 ready for cutover</div></article>
+          <article class="metric card"><div class="metric-label">Data in scope</div><div class="metric-value">4.8 TB</div><div class="metric-note">Across configured sample jobs</div></article>
+          <article class="metric card"><div class="metric-label">Files transferred</div><div class="metric-value">286k</div><div class="metric-note">Sample history · not live progress</div></article>
+          <article class="metric card"><div class="metric-label">Cutovers completed</div><div class="metric-value">01</div><div class="metric-note">Sample operator handoff</div></article>
+        </section>
+        <div class="columns">
+          <section class="panel card" id="jobs">
+            <div class="panel-head"><h2>Migration jobs</h2><span class="muted" id="jobCount">3 sample jobs</span></div>
+            <div class="job-list" id="jobList"></div>
+            <button class="button secondary create-link" id="createJobButton" type="button">＋ &nbsp; Create migration job</button>
+          </section>
+          <section class="panel card" id="cutover">
+            <div class="panel-head"><h2>Job overview</h2><span class="pill">Sample workspace</span></div>
+            <div id="jobDetail"></div>
+          </section>
+        </div>
+        <section class="lower" id="activity">
+          <article class="panel card">
+            <div class="panel-head"><h2>Recent activity</h2><span class="muted">Sample events</span></div>
+            <div class="activity-list" id="activityList"></div>
+          </article>
+          <article class="panel card">
+            <div class="panel-head"><h2>Cutover, with control</h2><span class="muted">Operator-led workflow</span></div>
+            <p class="subtitle" style="font-size:11px">Every gate is explicit. The application records operator attestations; it does not infer that a production prerequisite has been met.</p>
+            <div class="steps">
+              <div class="step done"><span class="step-icon">✓</span>Dry-Run &amp; review</div>
+              <div class="step done"><span class="step-icon">✓</span>Independent validation</div>
+              <div class="step active"><span class="step-icon">03</span>Freeze source writes</div>
+              <div class="step"><span class="step-icon">04</span>Approve final sync</div>
+              <div class="step"><span class="step-icon">05</span>Verify final copy</div>
+              <div class="step"><span class="step-icon">06</span>Confirm handoff</div>
+            </div>
+            <p class="note">Share permissions, client redirection and rollback execution remain outside the application. Do not treat demo content as migration evidence.</p>
+          </article>
+        </section>
+        <footer>DataMover Enterprise v1.2 · Robocopy-only Windows pilot · No automatic deletions, ACL verification or client redirection.</footer>
+      </main>
+    </div>
+  </div>
+  <div class="notice-toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <h2 id="modalTitle">Create a sample migration</h2>
+      <p>Demo mode only — this creates a temporary row in this page, not a real DataMover job.</p>
+      <label for="sampleName" style="display:block;margin:12px 0 6px;color:#45596c;font-size:11px;font-weight:650">Sample job name</label>
+      <input id="sampleName" maxlength="60" placeholder="Research share migration">
+      <div class="modal-actions"><button class="button secondary" id="cancelModal" type="button">Cancel</button><button class="button" id="addSampleJob" type="button">Add to demo</button></div>
+    </div>
+  </div>
+  <script>
+    const sampleJobs = [
+      { id: 1, name: 'Finance share migration', source: '\\\\FS01\\Shares\\Finance', destination: '\\\\FS02\\Shares\\Finance', status: 'running', phase: 'Incremental sync', size: '2.4 TB', progress: 68, schedule: 'Daily · 02:00', steps: ['Dry-Run complete', 'Validation attested', 'Source freeze pending', 'Final sync approval', 'Final verification', 'Client handoff'] },
+      { id: 2, name: 'Marketing archive', source: '\\\\FS01\\Departments\\Marketing', destination: '\\\\FS02\\Departments\\Marketing', status: 'review', phase: 'Awaiting validation', size: '1.7 TB', progress: 100, schedule: 'Manual', steps: ['Dry-Run complete', 'Validation pending', 'Source freeze pending', 'Final sync approval', 'Final verification', 'Client handoff'] },
+      { id: 3, name: 'Engineering workspaces', source: '\\\\FS03\\Teams\\Engineering', destination: '\\\\FS04\\Teams\\Engineering', status: 'success', phase: 'Initial sync complete', size: '0.7 TB', progress: 100, schedule: 'Every 6 hours', steps: ['Dry-Run complete', 'Validation pending', 'Source freeze pending', 'Final sync approval', 'Final verification', 'Client handoff'] }
+    ];
+    let selectedId = 1;
+    let toastTimer;
+    const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+    function toast(text) {
+      const box = document.getElementById('toast');
+      box.textContent = text;
+      box.classList.add('visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => box.classList.remove('visible'), 3200);
+    }
+    function render() {
+      document.getElementById('metricJobs').textContent = String(sampleJobs.length).padStart(2, '0');
+      document.getElementById('jobCount').textContent = `${sampleJobs.length} sample jobs`;
+      document.getElementById('jobList').innerHTML = sampleJobs.map(job => `
+        <button class="job${job.id === selectedId ? ' selected' : ''}" type="button" data-id="${job.id}">
+          <span class="job-row"><span class="job-name">${escapeHTML(job.name)}</span><span class="pill ${escapeHTML(job.status)}">${escapeHTML(job.status)}</span></span>
+          <span class="job-path">${escapeHTML(job.source)} → ${escapeHTML(job.destination)}</span>
+          <span class="job-path">${escapeHTML(job.phase)} · ${escapeHTML(job.size)}</span>
+        </button>`).join('');
+      document.querySelectorAll('.job[data-id]').forEach(button => button.addEventListener('click', () => {
+        selectedId = Number(button.dataset.id);
+        render();
+      }));
+      const job = sampleJobs.find(item => item.id === selectedId);
+      document.getElementById('jobDetail').innerHTML = `
+        <div class="detail-top"><div><h2>${escapeHTML(job.name)}</h2><p class="subtitle" style="margin-top:5px;font-size:10px">Job #${job.id} · ${escapeHTML(job.phase)}</p></div><span class="pill ${escapeHTML(job.status)}">${escapeHTML(job.status)}</span></div>
+        <div class="detail-paths"><b>SOURCE</b><br>${escapeHTML(job.source)}<br><b>DESTINATION</b><br>${escapeHTML(job.destination)}</div>
+        <div class="progress-info"><strong>Sample transfer overview</strong><span>${job.progress}% · ${escapeHTML(job.size)}</span></div>
+        <div class="progress-bar" aria-label="Illustrative progress, sample data"><span style="width:${job.progress}%"></span></div>
+        <p class="progress-note">Illustrative sample only. The production dashboard does not report reliable byte progress, throughput or ETA.</p>
+        <div class="steps">${job.steps.map((step, index) => `<div class="step${index < 2 && job.id === 1 ? ' done' : index === 2 && job.id === 1 ? ' active' : ''}"><span class="step-icon">${index < 2 && job.id === 1 ? '✓' : String(index + 1).padStart(2, '0')}</span>${escapeHTML(step)}</div>`).join('')}</div>
+        <div class="detail-actions">
+          <button class="button secondary" type="button" data-demo-action="Dry-Run">Dry-Run</button>
+          <button class="button" type="button" data-demo-action="Start Sync">Start Sync</button>
+          <button class="button light" type="button" data-demo-action="Final Sync">Final Sync</button>
+          <button class="button secondary" type="button" data-demo-action="Rollback plan">Rollback plan</button>
+        </div>
+        <p class="note">Schedule: ${escapeHTML(job.schedule)} · Illustrative status, not connected to a worker.</p>`;
+      document.querySelectorAll('[data-demo-action]').forEach(button => button.addEventListener('click', () => {
+        toast(`${button.dataset.demoAction}: preview only — no files or production jobs are affected.`);
+      }));
+    }
+    const activity = [
+      ['09:42 AM', 'Finance share · Incremental sync started', 'running'],
+      ['08:17 AM', 'Marketing archive · Dry-Run completed', 'review'],
+      ['Yesterday', 'Engineering workspaces · Initial sync completed', 'success']
+    ];
+    document.getElementById('activityList').innerHTML = activity.map(([time, text, state]) => `
+      <div class="activity-row"><span class="activity-date">${time}</span><span class="activity-text">${text}</span><span class="pill ${state}">${state}</span></div>`).join('');
+    function openModal() {
+      document.getElementById('modalBackdrop').classList.add('open');
+      document.getElementById('sampleName').focus();
+    }
+    function closeModal() {
+      document.getElementById('modalBackdrop').classList.remove('open');
+      document.getElementById('sampleName').value = '';
+    }
+    document.getElementById('newJobButton').addEventListener('click', openModal);
+    document.getElementById('createJobButton').addEventListener('click', openModal);
+    document.getElementById('cancelModal').addEventListener('click', closeModal);
+    document.getElementById('modalBackdrop').addEventListener('click', event => {
+      if (event.target === event.currentTarget) closeModal();
+    });
+    document.getElementById('addSampleJob').addEventListener('click', () => {
+      const name = document.getElementById('sampleName').value.trim();
+      if (!name) return toast('Enter a sample job name to continue.');
+      const id = Math.max(0, ...sampleJobs.map(job => job.id)) + 1;
+      sampleJobs.unshift({
+        id, name, source: '\\\\FS01\\Shares\\Sample', destination: '\\\\FS02\\Shares\\Sample',
+        status: 'review', phase: 'Demo job created', size: 'Sample', progress: 0,
+        schedule: 'Manual', steps: ['Dry-Run pending', 'Validation pending', 'Source freeze pending', 'Final sync approval', 'Final verification', 'Client handoff']
+      });
+      selectedId = id;
+      closeModal();
+      render();
+      toast('Sample job added to this demo page only.');
+    });
+    document.querySelectorAll('.nav-link').forEach(link => link.addEventListener('click', () => {
+      document.querySelectorAll('.nav-link').forEach(item => item.classList.remove('active'));
+      link.classList.add('active');
+    }));
+    render();
+  </script>
+</body>
+</html>
