@@ -360,7 +360,7 @@ def rsandh_logo():
 
 @app.get('/demo')
 def demo_page():
-    return FileResponse(ROOT / 'app' / 'static' / 'demo.html')
+    return FileResponse(ROOT / 'app' / 'static' / 'index.html')
 
 @app.get('/api/auth/methods')
 def auth_methods():

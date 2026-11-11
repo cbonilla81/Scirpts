@@ -322,7 +322,7 @@
         <div class="top-actions">
           <img class="rsandh-logo" src="../../RS%26H_Logo.png" alt="RS&amp;H">
           <span id="connectionState" class="connection-state"><span class="dot"></span> Not connected</span>
-          <a class="demo-link" href="/demo">View demo ↗</a>
+          <a class="demo-link" id="demoLink" href="/demo">View demo ↗</a>
           <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh dashboard" title="Refresh">↻</button>
           <button class="button" id="usersButton" type="button" hidden>Manage users</button>
           <button class="button" id="lockButton" type="button" hidden>Sign out</button>
@@ -520,8 +520,161 @@
     const statusLabels = {
       idle: 'Idle', running: 'Running', success: 'Succeeded', failed: 'Failed', 'handed-off': 'Handed off'
     };
+    const demoMode = window.location.pathname === '/demo';
+    const demoUsers = [];
+    const demoJobs = [
+      { id: 1, name: 'Finance share migration', source: '\\\\FS01\\Shares\\Finance', destination: '\\\\FS02\\Shares\\Finance', status: 'running', phase: 'sync', last_exit: 0, last_started: new Date().toISOString(), last_finished: null, dry_run_ok: 1, validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: '0 2 * * *' },
+      { id: 2, name: 'Marketing archive', source: '\\\\FS01\\Departments\\Marketing', destination: '\\\\FS02\\Departments\\Marketing', status: 'success', phase: 'dry-run', last_exit: 1, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 1, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: null },
+      { id: 3, name: 'Engineering workspaces', source: '\\\\FS03\\Teams\\Engineering', destination: '\\\\FS04\\Teams\\Engineering', status: 'handed-off', phase: 'final', last_exit: 0, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 1, frozen: 1, approved: 1, final_verified: 1, handoff: 1, created: new Date().toISOString(), threads: 16, cron: null }
+    ];
+    const demoRuns = [{ id: 1, job_id: 1, mode: 'sync', started: new Date().toISOString(), status: 'running', exit_code: null, log_file: 'Demo simulation', summary: 'Sample run; no worker was started.' }];
+    const demoEvents = [
+      { job_id: 1, ts: new Date().toISOString(), level: 'info', message: 'Sample incremental sync is in progress.' },
+      { job_id: 2, ts: new Date().toISOString(), level: 'warning', message: 'Sample validation was attested by an operator.' },
+      { job_id: 3, ts: new Date().toISOString(), level: 'info', message: 'Sample cutover handoff was completed.' }
+    ];
+    let demoUser = null;
+    let demoSetupDone = false;
+
+    function demoSession() {
+      return { user: demoUser, csrf_token: 'demo-csrf-token' };
+    }
+    function requireDemoUser() {
+      if (!demoUser) throw new ApiError(401, 'Sign-in required');
+      return demoUser;
+    }
+    function demoLogin(provider, body = {}) {
+      const username = String(body.username || '').trim();
+      if (!username || !body.password) throw new ApiError(422, 'Enter a demo username and password');
+      if (provider === 'local') {
+        let account = demoUsers.find(item => item.username.toLowerCase() === username.toLowerCase());
+        if (!account) {
+          account = { id: demoUsers.length + 1, username, enabled: true, is_admin: true, created: new Date().toISOString() };
+          demoUsers.push(account);
+        }
+        if (!account.enabled) throw new ApiError(401, 'Invalid username or password');
+        demoUser = { id: account.id, username: account.username, provider, is_admin: Boolean(account.is_admin) };
+      } else {
+        demoUser = { id: `${provider}:${username}`, username, provider, is_admin: false };
+      }
+      return demoSession();
+    }
+    function demoApi(path, method, body) {
+      if (path === '/auth/methods' && method === 'GET') {
+        return { local: true, ad: true, entra: true, setup_required: new URLSearchParams(location.search).get('setup') === '1' && !demoSetupDone };
+      }
+      if (path === '/auth/session' && method === 'GET') {
+        if (!demoUser) throw new ApiError(401, 'Sign-in required');
+        return demoSession();
+      }
+      if (path === '/auth/setup' && method === 'POST') {
+        if (demoSetupDone || new URLSearchParams(location.search).get('setup') !== '1') throw new ApiError(409, 'Demo setup is not active');
+        const username = String(body.username || '').trim();
+        if (!username || !body.password || !body.setup_code) throw new ApiError(422, 'Complete all demo setup fields');
+        if (body.setup_code !== 'DEMO-SETUP-CODE-000000000000') throw new ApiError(401, 'Invalid demo setup code');
+        demoSetupDone = true;
+        demoUser = { id: 1, username, provider: 'local', is_admin: true };
+        demoUsers.push({ id: 1, username, enabled: true, is_admin: true, created: new Date().toISOString() });
+        return demoSession();
+      }
+      if (path === '/auth/local' && method === 'POST') return demoLogin('local', body);
+      if (path === '/auth/ad' && method === 'POST') return demoLogin('ad', body);
+      if (path === '/auth/entra' && method === 'POST') return demoLogin('entra', { username: 'entra.operator', password: 'demo' });
+      if (path === '/auth/logout' && method === 'POST') {
+        requireDemoUser();
+        demoUser = null;
+        return { signed_out: true };
+      }
+
+      requireDemoUser();
+      if (path === '/health' && method === 'GET') return { service: 'ok', engine: 'Robocopy simulation', platform: 'demo', jobs_running: demoJobs.filter(job => job.status === 'running').length };
+      if (path === '/jobs' && method === 'GET') return demoJobs.map(job => ({ ...job }));
+      if (path === '/jobs' && method === 'POST') {
+        const job = {
+          id: Math.max(0, ...demoJobs.map(item => item.id)) + 1,
+          name: body.name, source: body.source, destination: body.destination, status: 'idle',
+          phase: 'created', last_exit: null, last_started: null, last_finished: null,
+          dry_run_ok: 0, validated: 0, frozen: 0, approved: 0, final_verified: 0,
+          handoff: 0, created: new Date().toISOString(), threads: body.threads, cron: body.cron,
+        };
+        demoJobs.unshift(job);
+        demoEvents.unshift({ job_id: job.id, ts: job.created, level: 'info', message: 'Sample job created in demo mode.' });
+        return { ...job };
+      }
+      const detailMatch = path.match(/^\/jobs\/(\d+)$/);
+      if (detailMatch && method === 'GET') {
+        const job = demoJobs.find(item => item.id === Number(detailMatch[1]));
+        if (!job) throw new ApiError(404, 'Job not found');
+        return { ...job };
+      }
+      const historyMatch = path.match(/^\/jobs\/(\d+)\/(events|runs)$/);
+      if (historyMatch && method === 'GET') {
+        const jobId = Number(historyMatch[1]);
+        if (historyMatch[2] === 'events') return demoEvents.filter(item => item.job_id === jobId).map(item => ({ ...item }));
+        return demoRuns.filter(item => item.job_id === jobId).map(item => ({ ...item }));
+      }
+      const runMatch = path.match(/^\/jobs\/(\d+)\/run\/(dry-run|sync|final)$/);
+      if (runMatch && method === 'POST') {
+        const job = demoJobs.find(item => item.id === Number(runMatch[1]));
+        if (!job) throw new ApiError(404, 'Job not found');
+        const mode = runMatch[2];
+        const now = new Date().toISOString();
+        job.status = 'success';
+        job.phase = mode;
+        job.last_exit = mode === 'dry-run' ? 1 : 0;
+        job.last_started = now;
+        job.last_finished = now;
+        if (mode === 'dry-run') job.dry_run_ok = 1;
+        if (mode === 'sync') Object.assign(job, { dry_run_ok: 0, validated: 0, frozen: 0, approved: 0, final_verified: 0 });
+        if (mode === 'final') job.final_verified = 0;
+        demoRuns.unshift({ id: demoRuns.length + 1, job_id: job.id, mode, started: now, status: 'success', exit_code: job.last_exit, log_file: 'Demo simulation', summary: 'Sample run only; no worker was started.' });
+        demoEvents.unshift({ job_id: job.id, ts: now, level: 'info', message: `Demo ${mode} completed in simulation.` });
+        return { accepted: true, mode };
+      }
+      const attestationMatch = path.match(/^\/jobs\/(\d+)\/(validate|freeze|approve|verify-final|handoff)$/);
+      if (attestationMatch && method === 'POST') {
+        const job = demoJobs.find(item => item.id === Number(attestationMatch[1]));
+        if (!job) throw new ApiError(404, 'Job not found');
+        const field = { validate: 'validated', freeze: 'frozen', approve: 'approved', 'verify-final': 'final_verified', handoff: 'handoff' }[attestationMatch[2]];
+        job[field] = 1;
+        if (field === 'handoff') job.status = 'handed-off';
+        const now = new Date().toISOString();
+        demoEvents.unshift({ job_id: job.id, ts: now, level: 'warning', message: `Demo ${attestationMatch[2]} attestation recorded.` });
+        return { [field]: true };
+      }
+      const rollbackMatch = path.match(/^\/jobs\/(\d+)\/rollback-plan$/);
+      if (rollbackMatch && method === 'GET') return {
+        job: Number(rollbackMatch[1]), warning: 'Demo only; no rollback action is performed.',
+        steps: ['Retain the original source', 'Coordinate access changes with application owners', 'Validate user access before closing the change'],
+      };
+      if (path === '/users' && method === 'GET') {
+        if (!demoUser.is_admin) throw new ApiError(403, 'Local administrator access required');
+        return demoUsers.map(user => ({ ...user }));
+      }
+      if (path === '/users' && method === 'POST') {
+        if (!demoUser.is_admin) throw new ApiError(403, 'Local administrator access required');
+        if (demoUsers.some(user => user.username.toLowerCase() === String(body.username).toLowerCase())) {
+          throw new ApiError(409, 'That username is already registered');
+        }
+        const user = { id: Math.max(0, ...demoUsers.map(item => item.id)) + 1, username: body.username, enabled: true, is_admin: Boolean(body.is_admin), created: new Date().toISOString() };
+        demoUsers.push(user);
+        return { ...user };
+      }
+      const userMatch = path.match(/^\/users\/(\d+)$/);
+      if (userMatch && method === 'PATCH') {
+        if (!demoUser.is_admin) throw new ApiError(403, 'Local administrator access required');
+        const user = demoUsers.find(item => item.id === Number(userMatch[1]));
+        if (!user) throw new ApiError(404, 'Local user not found');
+        if (!body.enabled && user.id === demoUser.id) throw new ApiError(409, 'You cannot disable your own account');
+        if (!body.enabled && user.is_admin && demoUsers.filter(item => item.is_admin && item.enabled).length <= 1) throw new ApiError(409, 'The last enabled administrator cannot be disabled');
+        user.enabled = Boolean(body.enabled);
+        return { updated: true };
+      }
+      throw new ApiError(404, 'Demo endpoint not found');
+    }
 
     async function api(path, method = 'GET', body) {
+      if (demoMode) return demoApi(path, method, body);
       const headers = { 'Content-Type': 'application/json' };
       if (csrfToken && method !== 'GET') headers['X-CSRF-Token'] = csrfToken;
       const response = await fetch('/api' + path, {
@@ -606,7 +759,9 @@
     }
     function clearDetailMessage() {
       $('notice').className = 'notice';
-      $('notice').textContent = 'Controller connected. Review job status and cutover prerequisites before taking action.';
+      $('notice').textContent = demoMode
+        ? 'Demo simulation only. Actions update sample data in this browser; nothing is sent to production.'
+        : 'Controller connected. Review job status and cutover prerequisites before taking action.';
     }
     function gateStep(index, complete, current) {
       const step = $('cutoverSteps').children[index];
@@ -770,7 +925,9 @@
       csrfToken = result.csrf_token;
       const health = await api('/health');
       setConnected(health.engine);
-      showNotice('Controller connected. Review job status and cutover prerequisites before taking action.');
+      showNotice(demoMode
+        ? 'Demo simulation only. Actions update sample data in this browser; nothing is sent to production.'
+        : 'Controller connected. Review job status and cutover prerequisites before taking action.');
       await refresh();
     }
     async function initializeAuth() {
@@ -783,10 +940,23 @@
         $('loginForm').hidden = methods.setup_required;
         $('setupForm').hidden = !methods.setup_required;
         $('providerField').hidden = methods.setup_required || $('authProvider').options.length < 2;
+        if (demoMode) {
+          document.title = 'DataMover Enterprise | Interactive Demo';
+          $('demoLink').href = '/';
+          $('demoLink').textContent = 'Back to live sign-in ↗';
+          $('authNote').innerHTML = methods.setup_required
+            ? '<strong>Demo setup preview.</strong> Use <code>DEMO-SETUP-CODE-000000000000</code> as the setup code. This creates only a temporary demo account.'
+            : '<strong>Demo only.</strong> Use any username and password. Local sign-in opens a simulated administrator account; AD and Entra are simulated operators. No real credentials or production jobs are used.';
+        }
         if (methods.setup_required) {
           $('authHeading').textContent = 'Set up administrator';
-          $('authDescription').textContent = 'Enter the one-time setup code from the DataMover service log or protected configuration.';
-          $('authNote').innerHTML = '<strong>First-run setup.</strong> The setup code can be used once to create the initial local administrator.';
+          $('authDescription').textContent = demoMode
+            ? 'Preview the first-run administrator setup using the demo code shown below.'
+            : 'Enter the one-time setup code from the DataMover service log or protected configuration.';
+          if (!demoMode) $('authNote').innerHTML = '<strong>First-run setup.</strong> The setup code can be used once to create the initial local administrator.';
+        } else {
+          $('authHeading').textContent = 'Welcome back';
+          $('authDescription').textContent = 'Sign in to the DataMover migration console with an approved account.';
         }
         try {
           const session = await api('/auth/session');
@@ -825,6 +995,7 @@
       try { await api('/auth/logout', 'POST'); }
       catch (error) { logoutError = error; }
       await lockConsole(false);
+      if (demoMode) await initializeAuth();
       if (logoutError) showAuthError(`Signed out locally, but the server session could not be cleared: ${logoutError.message}`);
     }
     async function loadUsers() {
@@ -887,7 +1058,11 @@
 
     $('loginForm').addEventListener('submit', signIn);
     $('setupForm').addEventListener('submit', setupAdmin);
-    $('entraButton').addEventListener('click', () => { window.location.assign('/auth/entra/login'); });
+    $('entraButton').addEventListener('click', async () => {
+      if (!demoMode) return window.location.assign('/auth/entra/login');
+      try { await activateSession(await api('/auth/entra', 'POST')); }
+      catch (error) { showAuthError(error.message); }
+    });
     $('lockButton').addEventListener('click', signOut);
     $('refreshButton').addEventListener('click', () => currentUser ? refresh() : $('loginUsername').focus());
     $('usersButton').addEventListener('click', openUsers);
