@@ -9,7 +9,7 @@ A light-themed FastAPI + HTML pilot for **Windows Server SMB/NTFS migrations**. 
 1. Install **Windows Server 2019/2022/2025**, Python 3.11+ and Robocopy (included with Windows). Run `Get-Command robocopy.exe` and `robocopy /?` in PowerShell.
 2. Extract this repository to `C:\DataMover`. Open PowerShell in that directory.
 3. Run `py -3 -m venv .venv`, then `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
-4. Copy `.env.example` to `.env`; generate a random session secret with `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` in PowerShell 7, or use `[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')` in Windows PowerShell. Set `DATAMOVER_SESSION_SECRET` and exact approved root paths such as `\\FS01\Shares;\\FS02\Shares` (single backslashes in the actual `.env` value; see below). Configure optional AD and Entra settings as applicable.
+4. Copy `.env.example` to `.env`; generate a random session secret with `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` in PowerShell 7, or use `[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')` in Windows PowerShell. Set `DATAMOVER_SESSION_SECRET` and initial approved roots such as `\\FS01\Shares;\\FS02\Shares` (single backslashes in the actual `.env` value; see below). Configure optional AD and Entra settings as applicable.
 5. Run `.\scripts\Start-DataMover.ps1`. On first startup, retrieve the one-time setup code from the service log (or set a protected `DATAMOVER_SETUP_TOKEN` before starting), then open `http://127.0.0.1:8080/login` **on the management host** to create the first local administrator. The console also opens at `/`. For a presentation preview of the same console and login page, open `http://127.0.0.1:8080/demo` or open `app\static\demo.html` directly. The demo file provides a **Skip sign-in · Open demo** button; sign-ins and actions use sample data only and never call the production API. You can also enter any username/password, or open `/demo?setup=1` to preview first-admin setup using `DEMO-SETUP-CODE-000000000000`.
 6. Create a small test job using approved source/destination paths, run **Dry-Run**, inspect the run history and `state\logs`, then run initial sync and independently verify files and ACLs.
 
@@ -24,7 +24,7 @@ DATAMOVER_TZ=America/New_York
 DATAMOVER_MAX_WORKERS=2
 ```
 
-Keep `.env` readable only by administrators and the dedicated service identity. `DATAMOVER_SESSION_SECRET` must be a random value of at least 32 characters. Set `DATAMOVER_COOKIE_SECURE=true` when serving the application over HTTPS.
+Keep `.env` readable only by administrators and the dedicated service identity. `DATAMOVER_SESSION_SECRET` must be a random value of at least 32 characters. Set `DATAMOVER_COOKIE_SECURE=true` when serving the application over HTTPS. On first startup, `DATAMOVER_ALLOWED_ROOTS` seeds the approved roots stored in the application database. Signed-in users can manage those roots through **Manage approved roots** in the UI; changes persist in SQLite and do not require editing `.env` or restarting the app.
 
 Authentication options:
 
@@ -69,7 +69,7 @@ Jobs accept a five-field cron expression (minute hour day month weekday), e.g. `
 ## Security and known limits
 
 - Bind to `127.0.0.1` by default; use a vetted TLS reverse proxy for remote access and set `DATAMOVER_COOKIE_SECURE=true`. Local, Active Directory and Entra ID sign-in use eight-hour signed sessions and CSRF protection on mutations. The application does not provide granular job-level RBAC.
-- Approved source/destination roots are enforced; path traversal, nested paths, unsafe switches, and arbitrary command execution are blocked.
+- Approved source/destination roots are enforced; any signed-in user can add or remove roots in the UI, so root management expands or restricts the network paths available to all users. Path traversal, nested paths, unsafe switches, and arbitrary command execution are blocked.
 - Only Windows can run Robocopy. Network shares must be reachable under the **worker service account**.
 - Current dashboard shows job state and run summaries; **not trustworthy byte-level progress, throughput, or ETA**. The progress bar is decorative and does not claim actual percentage.
 - Operator attestations are not automated integrity verification. No automatic NTFS ACL diff, hash compare, share ACL export, DFS/DNS switch, backup, retry orchestration, or rollback execution.

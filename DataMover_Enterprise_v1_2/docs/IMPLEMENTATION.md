@@ -32,7 +32,7 @@ notepad .env
 .\scripts\Start-DataMover.ps1
 ```
 
-Set a random `DATAMOVER_SESSION_SECRET` of at least 32 characters and the approved source/destination roots. Keep the environment file readable only by administrators and the service identity. The app starts on localhost port 8080. Avoid public binding. Run one process only. For long-running production services, use an approved Windows service manager with automatic restart and a dedicated domain account; verify service environment variables and profile access.
+Set a random `DATAMOVER_SESSION_SECRET` of at least 32 characters and initial approved source/destination roots. On first startup, `DATAMOVER_ALLOWED_ROOTS` seeds the roots persisted in the application database. Signed-in users can add and remove roots from **Manage approved roots** in the web UI; these changes persist without editing `.env` or restarting. Any signed-in user can manage roots, so adding a root expands the paths available to every user. At least one root must remain, and a root needed by an active migration cannot be removed. Removing a root prevents affected saved jobs from starting again. Keep the environment file readable only by administrators and the service identity. The app starts on localhost port 8080. Avoid public binding. Run one process only. For long-running production services, use an approved Windows service manager with automatic restart and a dedicated domain account; verify service environment variables and profile access.
 
 ### Configure sign-in
 

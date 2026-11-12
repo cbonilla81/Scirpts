@@ -7,6 +7,11 @@ ROOTS = [r'\\FS01\Shares', r'\\FS02\Shares']
 def test_unc_paths():
     assert normalize_path(r'\\FS01\Shares\Finance').lower().endswith('finance')
     assert validate_pair(r'\\FS01\Shares\Finance', r'\\FS02\Shares\Finance', ROOTS)
+    assert validate_pair(
+        r'\\files.example.com\Departments\Finance',
+        r'\\FS02\Shares\Finance',
+        [r'\\files.example.com\Departments', r'\\FS02\Shares'],
+    )
 
 def test_reject_path_traversal():
     with pytest.raises(EngineError):

@@ -41,10 +41,10 @@ SESSION_SECRET = os.environ.get('DATAMOVER_SESSION_SECRET', '')
 if len(SESSION_SECRET) < 32 or SESSION_SECRET.startswith('REPLACE_'):
     raise RuntimeError('DATAMOVER_SESSION_SECRET must be a random secret of at least 32 characters')
 COOKIE_SECURE = os.environ.get('DATAMOVER_COOKIE_SECURE', 'false').casefold() == 'true'
-ROOTS = [x.strip() for x in os.environ.get('DATAMOVER_ALLOWED_ROOTS', '').split(';') if x.strip()]
-if not ROOTS:
+INITIAL_ROOTS = [x.strip() for x in os.environ.get('DATAMOVER_ALLOWED_ROOTS', '').split(';') if x.strip()]
+if not INITIAL_ROOTS:
     raise RuntimeError('Set DATAMOVER_ALLOWED_ROOTS to semicolon-delimited approved Windows paths')
-ROOTS = [engine.normalize_path(x) for x in ROOTS]
+INITIAL_ROOTS = [engine.normalize_path(x) for x in INITIAL_ROOTS]
 AD_LDAP_URL = os.environ.get('DATAMOVER_AD_LDAP_URL', '').strip()
 AD_CA_CERT = os.environ.get('DATAMOVER_AD_CA_CERT', '').strip() or None
 ENTRA_CLIENT_ID = os.environ.get('DATAMOVER_ENTRA_CLIENT_ID', '').strip()
@@ -119,7 +119,21 @@ def init_db():
         id INTEGER PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE,
         password_hash TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
         is_admin INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS approved_roots (
+        path TEXT PRIMARY KEY COLLATE NOCASE, created TEXT NOT NULL, created_by TEXT NOT NULL);
         ''')
+        root_count = db.execute('SELECT COUNT(*) FROM approved_roots').fetchone()[0]
+        if root_count == 0:
+            db.executemany(
+                'INSERT OR IGNORE INTO approved_roots(path,created,created_by) VALUES(?,?,?)',
+                [(root, now(), 'environment') for root in INITIAL_ROOTS],
+            )
+
+def get_approved_roots():
+    return sql('SELECT path,created,created_by FROM approved_roots ORDER BY path COLLATE NOCASE')
+
+def root_paths():
+    return [root['path'] for root in get_approved_roots()]
 
 def get_job(jid):
     job = sql('SELECT * FROM jobs WHERE id=?', (jid,), one=True)
@@ -138,13 +152,20 @@ def invalidate(jid):
     sql('UPDATE jobs SET dry_run_ok=0, validated=0, frozen=0, approved=0, final_verified=0 WHERE id=?', (jid,))
 
 def submit(jid, mode, scheduled=False):
-    job = get_job(jid)
     with LOCK:
+        job = get_job(jid)
         if jid in ACTIVE:
             if scheduled:
                 event(jid, 'warning', 'Scheduled run skipped: job already running')
                 return False
             raise HTTPException(409, 'Job already running')
+        try:
+            engine.validate_pair(job['source'], job['destination'], root_paths())
+        except engine.EngineError as exc:
+            if scheduled:
+                event(jid, 'warning', f'Scheduled run skipped: {exc}')
+                return False
+            raise HTTPException(409, f'Job paths are no longer covered by approved roots: {exc}') from exc
         if job['handoff']:
             raise HTTPException(409, 'Job has been handed off')
         if mode == 'final' and not (job['dry_run_ok'] and job['validated'] and job['frozen'] and job['approved']):
@@ -308,6 +329,9 @@ class LocalUserIn(BaseModel):
 
 class LocalUserStatus(BaseModel):
     enabled: bool
+
+class ApprovedRootIn(BaseModel):
+    path: str = Field(min_length=1, max_length=512)
 
 @asynccontextmanager
 async def lifespan(app):
@@ -520,20 +544,61 @@ def health():
         exe = str(exc)
     return {'service': 'ok', 'engine': exe, 'platform': os.name, 'jobs_running': len(ACTIVE)}
 
+@app.get('/api/roots', dependencies=[Depends(require_auth)])
+def approved_roots():
+    return get_approved_roots()
+
+@app.post('/api/roots', dependencies=[Depends(require_auth), Depends(require_csrf)], status_code=201)
+def add_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
+    try:
+        root = engine.normalize_path(data.path)
+    except engine.EngineError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    with LOCK:
+        try:
+            sql('INSERT INTO approved_roots(path,created,created_by) VALUES(?,?,?)',
+                (root, now(), user.get('username', 'unknown')))
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, 'That approved root already exists') from exc
+    return {'path': root}
+
+@app.delete('/api/roots', dependencies=[Depends(require_auth), Depends(require_csrf)])
+def remove_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
+    try:
+        root = engine.normalize_path(data.path)
+    except engine.EngineError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    with LOCK:
+        roots = root_paths()
+        if not any(path.casefold() == root.casefold() for path in roots):
+            raise HTTPException(404, 'Approved root not found')
+        if len(roots) == 1:
+            raise HTTPException(409, 'At least one approved root must remain')
+        remaining_roots = [path for path in roots if path.casefold() != root.casefold()]
+        for jid in ACTIVE:
+            job = get_job(jid)
+            try:
+                engine.validate_pair(job['source'], job['destination'], remaining_roots)
+            except engine.EngineError as exc:
+                raise HTTPException(409, 'Cannot remove this root while a running migration depends on it') from exc
+        sql('DELETE FROM approved_roots WHERE path=?', (root,))
+    return {'removed': True, 'path': root}
+
 @app.get('/api/jobs', dependencies=[Depends(require_auth)])
 def jobs():
     return sql('SELECT * FROM jobs ORDER BY id DESC')
 
 @app.post('/api/jobs', dependencies=[Depends(require_auth), Depends(require_csrf)], status_code=201)
 def create_job(data: JobIn):
-    try:
-        src, dst = engine.validate_pair(data.source, data.destination, ROOTS)
-        if data.cron:
-            CronTrigger.from_crontab(data.cron, timezone=TZ)
-    except (engine.EngineError, ValueError) as exc:
-        raise HTTPException(422, str(exc))
-    jid = sql('INSERT INTO jobs(name,source,destination,cron,threads,created) VALUES(?,?,?,?,?,?)',
-              (data.name, src, dst, data.cron, data.threads, now()))
+    with LOCK:
+        try:
+            src, dst = engine.validate_pair(data.source, data.destination, root_paths())
+            if data.cron:
+                CronTrigger.from_crontab(data.cron, timezone=TZ)
+        except (engine.EngineError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        jid = sql('INSERT INTO jobs(name,source,destination,cron,threads,created) VALUES(?,?,?,?,?,?)',
+                  (data.name, src, dst, data.cron, data.threads, now()))
     schedule(get_job(jid))
     event(jid, 'info', 'Job created')
     return get_job(jid)

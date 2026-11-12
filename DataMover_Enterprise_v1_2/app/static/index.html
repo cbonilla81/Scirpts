@@ -324,6 +324,7 @@
           <span id="connectionState" class="connection-state"><span class="dot"></span> Not connected</span>
           <a class="demo-link" id="demoLink" href="/demo">View demo ↗</a>
           <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh dashboard" title="Refresh">↻</button>
+          <button class="button" id="rootsButton" type="button" hidden>Manage approved roots</button>
           <button class="button" id="usersButton" type="button" hidden>Manage users</button>
           <button class="button" id="lockButton" type="button" hidden>Sign out</button>
         </div>
@@ -481,7 +482,7 @@
       <div class="field"><label for="jobDestination">Destination UNC path</label><input id="jobDestination" name="destination" required placeholder="\\FS02\Shares\Finance"></div>
       <div class="field"><label for="jobCron">Schedule (optional, five-field cron)</label><input id="jobCron" name="cron" placeholder="0 2 * * *"></div>
       <div class="field"><label for="jobThreads">Robocopy threads (1–32)</label><input id="jobThreads" name="threads" type="number" min="1" max="32" value="16" required></div>
-      <div class="modal-note">Jobs can only use paths under the controller's configured approved roots. Schedules use the server's configured time zone.</div>
+      <div class="modal-note">Jobs can only use paths under approved roots. Add or remove roots with Manage approved roots. Schedules use the server's configured time zone.</div>
       <div class="modal-actions"><button class="button" type="button" id="cancelModal">Cancel</button><button class="button primary" type="submit">Create job</button></div>
     </form>
   </div>
@@ -497,6 +498,18 @@
       </form>
       <div id="usersList" class="run-list" aria-live="polite"></div>
       <div id="usersMessage" class="message" role="status" aria-live="polite"></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="rootsModal" role="dialog" aria-modal="true" aria-labelledby="rootsModalTitle">
+    <section class="modal">
+      <div class="modal-head"><div><h2 id="rootsModalTitle">Approved file server roots</h2><p>Manage the network paths migration jobs may use.</p></div><button class="close" type="button" id="closeRootsModal" aria-label="Close">×</button></div>
+      <form id="rootForm">
+        <div class="field"><label for="approvedRootInput">UNC share or DFS Namespace path</label><input id="approvedRootInput" required maxlength="512" placeholder="\\files.example.com\Departments"></div>
+        <div class="modal-note">Any signed-in user can add or remove roots. Changes apply immediately. At least one root must remain; a root cannot be removed if that would leave a running migration outside approved roots.</div>
+        <div class="modal-actions"><button class="button primary" type="submit">Add approved root</button></div>
+      </form>
+      <div id="rootsList" class="run-list" aria-live="polite"></div>
+      <div id="rootsMessage" class="message" role="status" aria-live="polite"></div>
     </section>
   </div>
 
@@ -523,6 +536,11 @@
     const demoMode = window.location.pathname === '/demo' ||
       new URLSearchParams(window.location.search).get('demo') === '1';
     const demoUsers = [];
+    const demoRoots = [
+      { path: '\\\\FS01\\Shares', created: new Date().toISOString(), created_by: 'demo setup' },
+      { path: '\\\\FS02\\Shares', created: new Date().toISOString(), created_by: 'demo setup' },
+      { path: '\\\\files.example.com\\Departments', created: new Date().toISOString(), created_by: 'demo setup' }
+    ];
     const demoJobs = [
       { id: 1, name: 'Finance share migration', source: '\\\\FS01\\Shares\\Finance', destination: '\\\\FS02\\Shares\\Finance', status: 'running', phase: 'sync', last_exit: 0, last_started: new Date().toISOString(), last_finished: null, dry_run_ok: 1, validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: '0 2 * * *' },
       { id: 2, name: 'Marketing archive', source: '\\\\FS01\\Departments\\Marketing', destination: '\\\\FS02\\Departments\\Marketing', status: 'success', phase: 'dry-run', last_exit: 1, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 1, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: null },
@@ -589,6 +607,22 @@
 
       requireDemoUser();
       if (path === '/health' && method === 'GET') return { service: 'ok', engine: 'Robocopy simulation', platform: 'demo', jobs_running: demoJobs.filter(job => job.status === 'running').length };
+      if (path === '/roots' && method === 'GET') return demoRoots.map(root => ({ ...root }));
+      if (path === '/roots' && method === 'POST') {
+        const root = String(body.path || '').trim();
+        if (!root) throw new ApiError(422, 'Enter a UNC root path');
+        if (demoRoots.some(item => item.path.toLowerCase() === root.toLowerCase())) throw new ApiError(409, 'That approved root already exists');
+        const item = { path: root, created: new Date().toISOString(), created_by: demoUser.username };
+        demoRoots.push(item);
+        return { path: item.path };
+      }
+      if (path === '/roots' && method === 'DELETE') {
+        const index = demoRoots.findIndex(root => root.path.toLowerCase() === String(body.path || '').toLowerCase());
+        if (index < 0) throw new ApiError(404, 'Approved root not found');
+        if (demoRoots.length <= 1) throw new ApiError(409, 'At least one approved root must remain');
+        const [removed] = demoRoots.splice(index, 1);
+        return { removed: true, path: removed.path };
+      }
       if (path === '/jobs' && method === 'GET') return demoJobs.map(job => ({ ...job }));
       if (path === '/jobs' && method === 'POST') {
         const job = {
@@ -712,6 +746,7 @@
       $('authBox').hidden = true;
       $('workspace').hidden = false;
       $('lockButton').hidden = false;
+      $('rootsButton').hidden = false;
       $('usersButton').hidden = !currentUser?.is_admin;
       $('connectionState').classList.add('connected');
       $('connectionState').innerHTML = '<span class="dot connected"></span> Connected';
@@ -999,7 +1034,9 @@
       $('workspace').hidden = true;
       $('authBox').hidden = false;
       $('lockButton').hidden = true;
+      $('rootsButton').hidden = true;
       $('usersButton').hidden = true;
+      $('rootsModal').classList.remove('open');
       $('connectionState').classList.remove('connected');
       $('connectionState').innerHTML = '<span class="dot"></span> Not connected';
       $('controllerDot').classList.remove('connected');
@@ -1048,6 +1085,37 @@
       loadUsers();
       $('newUsername').focus();
     }
+    async function loadRoots() {
+      try {
+        const roots = await api('/roots');
+        $('rootsList').innerHTML = roots.map(root => `
+          <div class="run">
+            <strong>${escapeHtml(root.path)}</strong>
+            <small>Added by ${escapeHtml(root.created_by)} · ${escapeHtml(formatTime(root.created))}</small>
+            <button class="text-link root-remove" type="button" data-path="${escapeHtml(root.path)}" ${roots.length <= 1 ? 'disabled' : ''}>Remove root</button>
+          </div>`).join('');
+        $('rootsList').querySelectorAll('.root-remove').forEach(button => button.addEventListener('click', async () => {
+          const path = button.dataset.path;
+          if (!confirm(`Remove ${path} from approved roots? Existing jobs using it will no longer be able to run.`)) return;
+          try {
+            await api('/roots', 'DELETE', { path });
+            $('rootsMessage').textContent = 'Approved root removed.';
+            $('rootsMessage').className = 'message show success';
+            await loadRoots();
+          } catch (error) { showRootsError(error.message); }
+        }));
+      } catch (error) { showRootsError(error.message); }
+    }
+    function showRootsError(message) {
+      $('rootsMessage').textContent = message;
+      $('rootsMessage').className = 'message show error';
+    }
+    function openRoots() {
+      $('rootsModal').classList.add('open');
+      $('rootsMessage').className = 'message';
+      loadRoots();
+      $('approvedRootInput').focus();
+    }
     async function runAction(mode) {
       if (selectedId === null) return;
       if (mode === 'final' && !confirm('Confirm source writes are externally frozen and final sync is approved. Run Final Sync?')) return;
@@ -1087,6 +1155,19 @@
     $('lockButton').addEventListener('click', signOut);
     $('refreshButton').addEventListener('click', () => currentUser ? refresh() : $('loginUsername').focus());
     $('usersButton').addEventListener('click', openUsers);
+    $('rootsButton').addEventListener('click', openRoots);
+    $('closeRootsModal').addEventListener('click', () => $('rootsModal').classList.remove('open'));
+    $('rootsModal').addEventListener('click', event => { if (event.target === $('rootsModal')) $('rootsModal').classList.remove('open'); });
+    $('rootForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await api('/roots', 'POST', { path: $('approvedRootInput').value.trim() });
+        event.currentTarget.reset();
+        $('rootsMessage').textContent = 'Approved root added.';
+        $('rootsMessage').className = 'message show success';
+        await loadRoots();
+      } catch (error) { showRootsError(error.message); }
+    });
     $('closeUsersModal').addEventListener('click', () => $('usersModal').classList.remove('open'));
     $('usersModal').addEventListener('click', event => { if (event.target === $('usersModal')) $('usersModal').classList.remove('open'); });
     $('userForm').addEventListener('submit', async event => {
@@ -1114,6 +1195,7 @@
       if (event.key === 'Escape') {
         closeModal();
         $('usersModal').classList.remove('open');
+        $('rootsModal').classList.remove('open');
       }
     });
     $('dryRunButton').addEventListener('click', () => runAction('dry-run'));
