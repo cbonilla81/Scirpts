@@ -3,12 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="0;url=/demo">
+  <meta name="theme-color" content="#10263e">
   <title>DataMover Enterprise | Interactive Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body, main { width: 100%; height: 100%; margin: 0; }
+    main { position: relative; }
+    iframe { display: block; width: 100%; height: 100%; min-height: 100vh; border: 0; }
+    .demo-bypass {
+      position: fixed; top: 14px; right: 14px; z-index: 2; min-height: 38px; padding: 0 15px;
+      border: 1px solid #1e68b6; border-radius: 8px; color: white; background: #2874d0;
+      box-shadow: 0 3px 12px #10263e30; font: 650 12px "Segoe UI", Arial, sans-serif; cursor: pointer;
+    }
+    .demo-bypass:hover { background: #1d63bb; }
+    .demo-bypass:focus-visible { outline: 3px solid #2874d04d; outline-offset: 2px; }
+  </style>
 </head>
 <body>
-  <p>The interactive demo uses the production console UI with simulated sign-in and sample-only actions.</p>
-  <p><a href="/demo">Open the DataMover demo</a></p>
-  <script>window.location.replace('/demo');</script>
+  <main>
+    <iframe id="console" title="DataMover Enterprise interactive demo" src="index.html?demo=1"></iframe>
+    <button class="demo-bypass" id="demoBypass" type="button" title="Skip sign-in and open the sample dashboard">Skip sign-in · Open demo</button>
+  </main>
+  <script>
+    document.getElementById('demoBypass').addEventListener('click', () => {
+      document.getElementById('console').src = 'index.html?demo=1&bypass=1';
+      document.getElementById('demoBypass').hidden = true;
+    });
+  </script>
 </body>
 </html>

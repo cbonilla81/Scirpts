@@ -406,7 +406,7 @@
                   <tbody id="jobsBody"></tbody>
                 </table>
               </div>
-              <div class="table-foot"><span>Showing <strong id="shownJobs">0</strong> of <strong id="totalShownJobs">0</strong> jobs</span><span>Live controller data · no byte-level progress</span></div>
+              <div class="table-foot"><span>Showing <strong id="shownJobs">0</strong> of <strong id="totalShownJobs">0</strong> jobs</span><span id="jobDataLabel">Live controller data · no byte-level progress</span></div>
             </section>
 
             <section class="panel detail-panel" aria-live="polite" id="jobDetailPanel">
@@ -520,7 +520,8 @@
     const statusLabels = {
       idle: 'Idle', running: 'Running', success: 'Succeeded', failed: 'Failed', 'handed-off': 'Handed off'
     };
-    const demoMode = window.location.pathname === '/demo';
+    const demoMode = window.location.pathname === '/demo' ||
+      new URLSearchParams(window.location.search).get('demo') === '1';
     const demoUsers = [];
     const demoJobs = [
       { id: 1, name: 'Finance share migration', source: '\\\\FS01\\Shares\\Finance', destination: '\\\\FS02\\Shares\\Finance', status: 'running', phase: 'sync', last_exit: 0, last_started: new Date().toISOString(), last_finished: null, dry_run_ok: 1, validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: '0 2 * * *' },
@@ -737,6 +738,9 @@
       const visible = filteredJobs();
       $('shownJobs').textContent = visible.length;
       $('totalShownJobs').textContent = jobs.length;
+      $('jobDataLabel').textContent = demoMode
+        ? 'Sample demo data · simulated'
+        : 'Live controller data · no byte-level progress';
       if (!visible.length) {
         $('jobsBody').innerHTML = `<tr><td colspan="5">${jobs.length ? 'No jobs match this filter.' : 'No migrations created yet.'}</td></tr>`;
         return;
@@ -931,6 +935,26 @@
       await refresh();
     }
     async function initializeAuth() {
+      if (demoMode) {
+        document.title = 'DataMover Enterprise | Interactive Demo';
+        if (window.location.protocol === 'file:') {
+          $('demoLink').removeAttribute('href');
+          $('demoLink').textContent = 'Interactive demo · sample data';
+        } else {
+          $('demoLink').href = '/';
+          $('demoLink').textContent = 'Back to live sign-in ↗';
+        }
+      }
+      if (demoMode && new URLSearchParams(window.location.search).get('bypass') === '1') {
+        try {
+          await activateSession(await api('/auth/local', 'POST', {
+            username: 'Demo Operator', password: 'demo'
+          }));
+          return;
+        } catch (error) {
+          showAuthError(error.message);
+        }
+      }
       try {
         const methods = await api('/auth/methods');
         $('authProvider').replaceChildren();
@@ -941,9 +965,6 @@
         $('setupForm').hidden = !methods.setup_required;
         $('providerField').hidden = methods.setup_required || $('authProvider').options.length < 2;
         if (demoMode) {
-          document.title = 'DataMover Enterprise | Interactive Demo';
-          $('demoLink').href = '/';
-          $('demoLink').textContent = 'Back to live sign-in ↗';
           $('authNote').innerHTML = methods.setup_required
             ? '<strong>Demo setup preview.</strong> Use <code>DEMO-SETUP-CODE-000000000000</code> as the setup code. This creates only a temporary demo account.'
             : '<strong>Demo only.</strong> Use any username and password. Local sign-in opens a simulated administrator account; AD and Entra are simulated operators. No real credentials or production jobs are used.';
