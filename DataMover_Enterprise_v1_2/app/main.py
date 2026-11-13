@@ -379,6 +379,7 @@ def login_page():
     return FileResponse(ROOT / 'app' / 'static' / 'index.html')
 
 @app.get('/RS&H_Logo.png')
+@app.get('/logo.png')
 def rsandh_logo():
     return FileResponse(ROOT / 'RS&H_Logo.png', media_type='image/png')
 
