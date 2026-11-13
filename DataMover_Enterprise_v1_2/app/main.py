@@ -50,6 +50,9 @@ if not INITIAL_ROOTS:
 INITIAL_ROOTS = [engine.normalize_path(x) for x in INITIAL_ROOTS]
 AD_LDAP_URL = os.environ.get('DATAMOVER_AD_LDAP_URL', '').strip()
 AD_CA_CERT = os.environ.get('DATAMOVER_AD_CA_CERT', '').strip() or None
+AD_SEARCH_BASE = os.environ.get('DATAMOVER_AD_SEARCH_BASE', '').strip()
+AD_OPERATOR_GROUP_DN = os.environ.get('DATAMOVER_AD_OPERATOR_GROUP_DN', '').strip()
+AD_ADMIN_GROUP_DN = os.environ.get('DATAMOVER_AD_ADMIN_GROUP_DN', '').strip()
 ENTRA_CLIENT_ID = os.environ.get('DATAMOVER_ENTRA_CLIENT_ID', '').strip()
 ENTRA_CLIENT_SECRET = os.environ.get('DATAMOVER_ENTRA_CLIENT_SECRET', '')
 ENTRA_REDIRECT_URI = os.environ.get('DATAMOVER_ENTRA_REDIRECT_URI', '').strip()
@@ -102,6 +105,29 @@ def sql(query, params=(), *, one=False):
         db.commit()
         return cur.lastrowid
 
+def get_ad_settings():
+    stored = {row['key']: row['value'] for row in sql(
+        "SELECT key,value FROM app_settings WHERE key LIKE 'ad_%'"
+    )}
+    settings = {
+        'ldap_url': stored.get('ad_ldap_url', AD_LDAP_URL),
+        'ca_cert': stored.get('ad_ca_cert', AD_CA_CERT or ''),
+        'search_base': stored.get('ad_search_base', AD_SEARCH_BASE),
+        'operator_group_dn': stored.get('ad_operator_group_dn', AD_OPERATOR_GROUP_DN),
+        'admin_group_dn': stored.get('ad_admin_group_dn', AD_ADMIN_GROUP_DN),
+    }
+    settings['enabled'] = all((
+        settings['ldap_url'], settings['search_base'],
+        settings['operator_group_dn'], settings['admin_group_dn'],
+    ))
+    return settings
+
+def ad_group_roles(groups, settings):
+    normalized = {group.strip().casefold() for group in groups}
+    is_admin = settings['admin_group_dn'].strip().casefold() in normalized
+    is_operator = is_admin or settings['operator_group_dn'].strip().casefold() in normalized
+    return is_operator, is_admin
+
 def event(job_id, level, message):
     sql('INSERT INTO events(job_id,ts,level,message) VALUES(?,?,?,?)', (job_id, now(), level, str(message)[:1800]))
 
@@ -114,6 +140,41 @@ def replication_worker_online():
         return False
     updated = datetime.fromisoformat(heartbeat['updated'])
     return (datetime.now(timezone.utc) - updated).total_seconds() <= 15
+
+def continuous_job_status(worker_online):
+    rows = sql(
+        '''SELECT j.id,j.name,j.status,j.phase,j.last_exit,j.last_finished,j.last_error,
+                  j.dry_run_ok,j.continuous_ready,j.frozen,j.handoff,
+                  w.status AS watcher_status,w.error AS watcher_error
+           FROM jobs j LEFT JOIN worker_watchers w ON w.job_id=j.id
+           WHERE j.schedule_type='continuous' ORDER BY j.id'''
+    )
+    result = []
+    for job in rows:
+        if job['handoff']:
+            state = 'handed-off'
+        elif job['frozen']:
+            state = 'frozen'
+        elif not job['continuous_ready'] and not job['dry_run_ok']:
+            state = 'dry-run-required'
+        elif not job['continuous_ready']:
+            state = 'initial-sync-required'
+        elif not worker_online:
+            state = 'worker-offline'
+        else:
+            state = job['watcher_status'] or 'starting'
+            if state == 'stopped':
+                state = 'starting'
+        result.append({
+            'id': job['id'],
+            'name': job['name'],
+            'state': state,
+            'run_status': job['status'],
+            'last_exit': job['last_exit'],
+            'last_finished': job['last_finished'],
+            'last_error': job['watcher_error'] or job['last_error'],
+        })
+    return result
 
 def init_db():
     with connect() as db:
@@ -131,6 +192,9 @@ def init_db():
         CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, job_id INTEGER, mode TEXT, started TEXT,
         finished TEXT, status TEXT, exit_code INTEGER, log_file TEXT, summary TEXT);
         CREATE TABLE IF NOT EXISTS worker_heartbeats (name TEXT PRIMARY KEY, updated TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS worker_watchers (
+        job_id INTEGER PRIMARY KEY, status TEXT NOT NULL, updated TEXT NOT NULL, error TEXT);
+        CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE,
         password_hash TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
@@ -232,8 +296,9 @@ def submit(jid, mode, scheduled=False):
             raise HTTPException(409, 'Final sync requires dry run, validation, freeze confirmation and approval')
         if mode == 'sync' and job['frozen']:
             raise HTTPException(409, 'Source is marked frozen; use final sync')
-        if mode == 'sync' and job['schedule_type'] == 'continuous' and not job['continuous_ready']:
-            raise HTTPException(409, 'Run a successful Dry-Run before enabling continuous replication')
+        if (mode == 'sync' and job['schedule_type'] == 'continuous'
+                and not job['continuous_ready'] and not job['dry_run_ok']):
+            raise HTTPException(409, 'Run a successful Dry-Run before starting continuous replication')
         if job.get('execution_mode', 'async') == 'sync' and not scheduled and not replication_worker_online():
             raise HTTPException(503, 'Replication worker is offline; start its Windows service before waiting for a run')
         with connect() as db:
@@ -336,9 +401,14 @@ def run_job(jid, mode, run_id):
         if ok:
             if mode == 'dry-run':
                 sql(
-                    '''UPDATE jobs SET dry_run_ok=1,validated=0,frozen=0,approved=0,final_verified=0,
-                       continuous_ready=CASE WHEN schedule_type='continuous' THEN 1 ELSE continuous_ready END
+                    '''UPDATE jobs SET dry_run_ok=1,validated=0,frozen=0,approved=0,final_verified=0
                        WHERE id=?''',
+                    (jid,),
+                )
+            elif mode == 'sync':
+                sql(
+                    '''UPDATE jobs SET continuous_ready=1,dry_run_ok=1
+                       WHERE id=? AND schedule_type='continuous' ''',
                     (jid,),
                 )
             elif mode == 'final':
@@ -489,6 +559,37 @@ class Credentials(BaseModel):
     username: str = Field(min_length=1, max_length=256)
     password: str = Field(min_length=1, max_length=1024)
 
+class ADSettingsIn(BaseModel):
+    ldap_url: str = Field(min_length=8, max_length=512)
+    search_base: str = Field(min_length=1, max_length=512)
+    ca_cert: str = Field(default='', max_length=1024)
+    operator_group_dn: str = Field(min_length=1, max_length=512)
+    admin_group_dn: str = Field(min_length=1, max_length=512)
+
+    @field_validator('ldap_url')
+    @classmethod
+    def validate_ldap_url(cls, value):
+        parsed = urlsplit(value.strip())
+        if (parsed.scheme.casefold() != 'ldap' or not parsed.hostname
+                or parsed.path not in ('', '/') or parsed.username or parsed.password
+                or parsed.query or parsed.fragment):
+            raise ValueError('Use an ldap:// host URL without credentials or extra path data')
+        return value.strip()
+
+    @field_validator('search_base', 'ca_cert', 'operator_group_dn', 'admin_group_dn')
+    @classmethod
+    def trim_ad_setting(cls, value):
+        return value.strip()
+
+    @model_validator(mode='after')
+    def require_distinct_ad_groups(self):
+        if self.operator_group_dn.casefold() == self.admin_group_dn.casefold():
+            raise ValueError('Operators and Administrators must use different group DNs')
+        return self
+
+class ADTestCredentials(Credentials):
+    pass
+
 class FirstAdmin(Credentials):
     setup_code: str = Field(min_length=24, max_length=256)
     username: str = Field(min_length=1, max_length=120, pattern=r'^[A-Za-z0-9._@+-]+$')
@@ -563,7 +664,7 @@ def demo_page():
 def auth_methods():
     return {
         'local': True,
-        'ad': bool(AD_LDAP_URL),
+        'ad': get_ad_settings()['enabled'],
         'entra': ENTRA_ENABLED,
         'setup_required': setup_required(),
     }
@@ -615,20 +716,28 @@ def local_login(data: Credentials, request: Request):
 
 @app.post('/api/auth/ad', dependencies=[Depends(require_same_origin)])
 def ad_login(data: Credentials, request: Request):
-    if not AD_LDAP_URL:
+    settings = get_ad_settings()
+    if not settings['enabled']:
         raise HTTPException(503, 'Active Directory sign-in is not configured')
     address = check_login_rate(request)
     try:
-        authenticate_ad(data.username.strip(), data.password, AD_LDAP_URL, AD_CA_CERT)
+        groups = authenticate_ad(
+            data.username.strip(), data.password, settings['ldap_url'],
+            settings['ca_cert'] or None, settings['search_base'],
+        )
     except InvalidCredentials as exc:
         record_login_failure(address)
         raise HTTPException(401, 'Invalid username or password') from exc
     except DirectoryUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
+    is_operator, is_admin = ad_group_roles(groups, settings)
+    if not is_operator:
+        raise HTTPException(403, 'Your Active Directory account is not in an approved DataMover group')
     clear_login_failures(address)
     username = data.username.strip()
     identity = {
-        'id': username.casefold(), 'username': username, 'provider': 'ad', 'is_admin': False,
+        'id': username.casefold(), 'username': username, 'provider': 'ad',
+        'is_admin': is_admin, 'is_operator': is_operator,
     }
     return start_session(request, identity)
 
@@ -709,6 +818,50 @@ def set_local_user_status(user_id: int, data: LocalUserStatus, user=Depends(requ
         sql('UPDATE users SET enabled=? WHERE id=?', (int(data.enabled), user_id))
     return {'updated': True}
 
+@app.get('/api/admin/ad-settings', dependencies=[Depends(require_admin)])
+def ad_settings():
+    return get_ad_settings()
+
+@app.put('/api/admin/ad-settings', dependencies=[Depends(require_admin), Depends(require_csrf)])
+def update_ad_settings(data: ADSettingsIn):
+    values = (
+        ('ad_ldap_url', data.ldap_url),
+        ('ad_ca_cert', data.ca_cert),
+        ('ad_search_base', data.search_base),
+        ('ad_operator_group_dn', data.operator_group_dn),
+        ('ad_admin_group_dn', data.admin_group_dn),
+    )
+    with connect() as db:
+        db.executemany(
+            '''INSERT INTO app_settings(key,value) VALUES(?,?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value''',
+            values,
+        )
+        db.commit()
+    return get_ad_settings()
+
+@app.post('/api/admin/ad-settings/test', dependencies=[Depends(require_admin), Depends(require_csrf)])
+def test_ad_settings(data: ADTestCredentials):
+    settings = get_ad_settings()
+    if not settings['enabled']:
+        raise HTTPException(409, 'Save complete Active Directory settings before testing')
+    try:
+        groups = authenticate_ad(
+            data.username.strip(), data.password, settings['ldap_url'],
+            settings['ca_cert'] or None, settings['search_base'],
+        )
+    except InvalidCredentials as exc:
+        raise HTTPException(401, 'Active Directory test credentials were rejected') from exc
+    except DirectoryUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    is_operator, is_admin = ad_group_roles(groups, settings)
+    return {
+        'connected': True,
+        'authorized': is_operator,
+        'is_operator': is_operator,
+        'is_admin': is_admin,
+    }
+
 @app.get('/api/health', dependencies=[Depends(require_auth)])
 def health():
     try:
@@ -720,6 +873,7 @@ def health():
     return {
         'service': 'ok', 'engine': exe, 'platform': os.name,
         'jobs_running': running, 'replication_worker_online': worker_online,
+        'continuous_jobs': continuous_job_status(worker_online),
     }
 
 @app.get('/api/roots', dependencies=[Depends(require_auth)])
@@ -786,6 +940,37 @@ def create_job(data: JobIn):
              data.schedule_time, schedule_days, data.schedule_day, data.execution_mode, now()))
     schedule(get_job(jid))
     event(jid, 'info', 'Job created')
+    return get_job(jid)
+
+@app.put('/api/jobs/{jid}', dependencies=[Depends(require_auth), Depends(require_csrf)])
+def update_job(jid: int, data: JobIn):
+    with LOCK:
+        job = get_job(jid)
+        if job['handoff']:
+            raise HTTPException(409, 'Handed-off jobs cannot be edited')
+        if jid in ACTIVE or job['status'] in ('queued', 'running'):
+            raise HTTPException(409, 'Queued or running jobs cannot be edited')
+        try:
+            src, dst = engine.validate_pair(data.source, data.destination, root_paths())
+            if data.cron:
+                CronTrigger.from_crontab(data.cron, timezone=TZ)
+        except (engine.EngineError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        schedule_days = json.dumps(data.schedule_days) if data.schedule_days else None
+        cron = data.cron if data.schedule_type == 'cron' else None
+        sql(
+            '''UPDATE jobs SET name=?,source=?,destination=?,cron=?,threads=?,schedule_type=?,
+               scheduled_at=?,schedule_time=?,schedule_days=?,schedule_day=?,execution_mode=?,
+               status='idle',phase='created',dry_run_ok=0,validated=0,continuous_ready=0,
+               frozen=0,approved=0,final_verified=0,last_exit=NULL,last_started=NULL,
+               last_finished=NULL,last_error=NULL WHERE id=?''',
+            (data.name, src, dst, cron, data.threads, data.schedule_type,
+             data.scheduled_at.isoformat() if data.scheduled_at else None,
+             data.schedule_time, schedule_days, data.schedule_day, data.execution_mode, jid),
+        )
+        updated = get_job(jid)
+        schedule(updated)
+    event(jid, 'warning', 'Job configuration edited; dry-run and cutover checks must be repeated')
     return get_job(jid)
 
 @app.get('/api/jobs/{jid}', dependencies=[Depends(require_auth)])

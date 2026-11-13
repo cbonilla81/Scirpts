@@ -47,9 +47,9 @@ Use a dedicated gMSA with the required source read/backup and destination write/
 ### Configure sign-in
 
 - On first startup, retrieve the one-time setup code from the service log, or set a protected `DATAMOVER_SETUP_TOKEN` (at least 24 characters) before starting. Visit `/login` on the management host and use it once to create the first local administrator.
-- For Active Directory, configure `DATAMOVER_AD_LDAP_URL=ldap://<directory-host>` and optionally `DATAMOVER_AD_CA_CERT`. The app uses LDAP StartTLS, certificate validation and user principal name binds; do not use plain LDAP binds.
+- For Active Directory, a local administrator can configure the LDAP URL, CA certificate path, search base DN, and direct Operators and Administrators group DNs in the Active Directory section. `DATAMOVER_AD_*` environment values act as initial defaults. The app uses LDAP StartTLS, certificate validation and user principal name binds; do not use plain LDAP binds. Administrators inherit operator access; users outside both groups cannot sign in. The connection-test password is not persisted.
 - For Microsoft Entra ID, configure the client ID, secret, HTTPS callback URI (`https://<host>/auth/entra/callback`) and comma-separated allowed tenant UUIDs. Register the exact callback URI in the Entra app registration.
-- Local administrators can create and disable local accounts in the dashboard. Local, AD and Entra identities are operators; account administration is restricted to local administrators.
+- Local administrators can create and disable local accounts in the dashboard. Local and Entra identities remain operators; AD users must be in an authorized configured group. Account administration and AD configuration are restricted to administrators.
 - If exposed through HTTPS, set `DATAMOVER_COOKIE_SECURE=true` and verify the proxy preserves the external host and scheme. The application uses signed eight-hour sessions and CSRF protection for state-changing API requests.
 
 ## 4. Dry-Run acceptance
@@ -58,7 +58,9 @@ Create a small pilot job. Confirm **Replication worker online** in the console. 
 
 ## 5. Baseline and incremental sync
 
-Click **Run sync**. Inspect run logs and independently compare source/destination file counts, sizes, timestamps, selected hashes and NTFS ACLs. Use the job schedule picker for a one-time date/time, a daily/weekly/monthly recurrence, or **Continuous · watch for changes**. Continuous jobs require a successful Dry-Run to activate. They debounce source change notifications by two seconds, then run Robocopy; a full reconciliation runs at the configured interval (default five minutes). Destination-only files and source deletions are preserved. For continuous jobs, source file content takes precedence over destination edits. Changes to permissions on unchanged files may need `/SECFIX`; final sync includes it.
+Click **Run sync**. Inspect run logs and independently compare source/destination file counts, sizes, timestamps, selected hashes and NTFS ACLs. Use the job schedule picker for a one-time date/time, a daily/weekly/monthly recurrence, cron, or **Continuous · watch for changes**. Continuous jobs require a successful Dry-Run followed by a successful initial Run Sync; only after that sync succeeds does the worker start the watcher. The dashboard shows worker and per-job watcher state, latest sync result, and watcher errors. The worker debounces source change notifications by two seconds, then runs Robocopy; a full reconciliation runs at the configured interval (default five minutes). Destination-only files and source deletions are preserved. For continuous jobs, source file content takes precedence over destination edits. Changes to permissions on unchanged files may need `/SECFIX`; final sync includes it.
+
+Idle jobs can be edited. Queued, running, and handed-off jobs are protected from edits. Saving changes clears the prior Dry-Run, continuous readiness, and cutover attestations, so repeat the required checks for the updated configuration.
 
 ## 6. Controlled cutover
 
@@ -97,7 +99,7 @@ Run a fresh Dry-Run and independently validate the destination. Attest validatio
 - **Access denied**: Check worker identity, share permissions, NTFS DACL, backup/restore/security privileges, and remote access restrictions.
 - **No jobs scheduled**: Confirm one API process, the job schedule and time zone, and that the application is running during the scheduled window.
 - **Worker offline or jobs queued**: Check the `DataMoverReplication` service, `.worker.env` state path, service-account access to the state folder and shares, and `state\replication-worker.log`.
-- **Continuous job waiting for Dry-Run**: Complete a successful Dry-Run; the worker does not start watching/copying before that first safety check.
+- **Continuous job waiting for Dry-Run or initial sync**: Complete a successful Dry-Run, then run the initial sync. The worker does not start watching until that sync succeeds.
 
 ## 9. Limits for 10–100 TB
 

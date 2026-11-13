@@ -104,6 +104,12 @@
     .kpi-foot { display: flex; align-items: center; gap: 5px; margin-top: 5px; color: #8593a4; font-size: 10px; }
     .trend { color: var(--green); font-weight: 700; }
     .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(290px, .85fr); gap: 15px; margin-top: 16px; }
+    .monitor-panel { margin-top: 15px; }
+    .monitor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 14px; }
+    .monitor-item { min-width: 0; padding: 11px; border: 1px solid #edf0f5; border-radius: 8px; background: #fbfcfe; }
+    .monitor-item strong { display: block; color: #30455d; font-size: 10px; overflow-wrap: anywhere; }
+    .monitor-item small { display: block; margin-top: 6px; color: #78889b; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+    .monitor-item .error-text { color: #a23c39; }
     .panel { padding: 18px; }
     .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
     .panel-sub { margin-top: 5px; color: #8b98a8; font-size: 10px; line-height: 1.5; }
@@ -129,6 +135,9 @@
     .status.success, .status.ready { color: #147852; background: #eaf7f0; }
     .status.idle { color: #9a6a0a; background: #fff6df; }
     .status.failed { color: #a23c39; background: #faeae8; }
+    .status.watching { color: #147852; background: #eaf7f0; }
+    .status.error { color: #a23c39; background: #faeae8; }
+    .status.starting, .status.offline, .status.required { color: #8a5b0a; background: #fff3d4; }
     .status.handed-off { color: #526d8b; background: #edf2f7; }
     .table-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; padding-top: 11px; border-top: 1px solid #f0f2f6; color: #929eac; font-size: 9px; }
     .text-link { border: 0; padding: 0; color: #3478c8; background: none; font-size: 10px; font-weight: 650; }
@@ -307,6 +316,7 @@
         <a href="#jobs-section"><span class="nav-icon">⇄</span> Migration jobs</a>
         <a href="#events-section"><span class="nav-icon">◷</span> Activity &amp; events</a>
         <a href="#safeguards"><span class="nav-icon">◇</span> Safeguards</a>
+        <a href="#directory-section" id="adNavLink" hidden><span class="nav-icon">⌕</span> Active Directory</a>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="controller">
@@ -397,6 +407,14 @@
             <article class="kpi"><div class="kpi-top">Cutovers complete <span class="kpi-icon">⌁</span></div><div class="kpi-value" id="completeJobs">00</div><div class="kpi-foot">Operator-confirmed handoff</div></article>
           </section>
 
+          <section class="panel monitor-panel" id="replicationMonitor" aria-label="Continuous replication monitor">
+            <div class="panel-heading">
+              <div><h2>Continuous replication monitor</h2><div class="panel-sub">Worker and per-job watcher status, latest run outcome, and errors. Byte progress and ETA are not reported.</div></div>
+              <span class="status" id="replicationWorkerBadge">Checking worker</span>
+            </div>
+            <div class="monitor-grid" id="continuousMonitorJobs"><div class="panel-sub">Loading continuous jobs…</div></div>
+          </section>
+
           <div class="dashboard-grid">
             <section class="panel" id="jobs-section">
               <div class="panel-heading">
@@ -420,6 +438,7 @@
               <div class="action-row">
                 <button class="button" id="dryRunButton" type="button" disabled>Dry-Run</button>
                 <button class="button primary" id="syncButton" type="button" disabled>Run sync</button>
+                <button class="button" id="editJobButton" type="button" disabled>Edit job</button>
                 <button class="button warning" id="finalButton" type="button" disabled>Final sync</button>
                 <button class="button" id="rollbackButton" type="button" disabled>Rollback plan</button>
               </div>
@@ -472,6 +491,25 @@
             </div>
             <div class="guard-note">Robocopy exit codes 0–7 are treated as non-fatal and may still need review. The dashboard does not report trustworthy byte progress or ETA. No automatic ACL comparison, DNS/DFS switching or rollback execution is provided.</div>
           </section>
+          <section class="panel" id="directory-section" hidden style="margin-top:15px">
+            <div class="panel-heading"><div><h2>Active Directory integration</h2><div class="panel-sub">Configure LDAP StartTLS and direct security-group authorization. AD passwords are used only for sign-in or a connection test and are never saved.</div></div></div>
+            <form id="adSettingsForm">
+              <div class="field"><label for="adLdapUrl">LDAP server URL</label><input id="adLdapUrl" required maxlength="512" placeholder="ldap://dc.example.com:389"></div>
+              <div class="field"><label for="adSearchBase">Search base DN</label><input id="adSearchBase" required maxlength="512" placeholder="DC=example,DC=com"></div>
+              <div class="field"><label for="adCaCert">CA certificate path (optional)</label><input id="adCaCert" maxlength="1024" placeholder="C:\\DataMover\\certs\\ad-ca.pem"></div>
+              <div class="field"><label for="adOperatorGroup">Operators group DN</label><input id="adOperatorGroup" required maxlength="512" placeholder="CN=DataMover Operators,OU=Groups,DC=example,DC=com"></div>
+              <div class="field"><label for="adAdminGroup">Administrators group DN</label><input id="adAdminGroup" required maxlength="512" placeholder="CN=DataMover Administrators,OU=Groups,DC=example,DC=com"></div>
+              <div class="modal-note">Administrators inherit operator access. Group membership must be direct; users in neither configured group cannot sign in. Local administrator access remains available.</div>
+              <div class="action-row"><button class="button primary" type="submit">Save AD settings</button></div>
+            </form>
+            <form id="adTestForm" style="margin-top:16px">
+              <h3 style="color:#30455d;font-size:11px">Test connection and group access</h3>
+              <div class="field"><label for="adTestUsername">Test user UPN</label><input id="adTestUsername" required maxlength="256" autocomplete="username"></div>
+              <div class="field"><label for="adTestPassword">Test user password</label><input id="adTestPassword" type="password" required maxlength="1024" autocomplete="current-password"></div>
+              <div class="action-row"><button class="button" type="submit">Test AD connection</button></div>
+            </form>
+            <div id="adSettingsMessage" class="message" role="status" aria-live="polite"></div>
+          </section>
           <footer class="footer">DataMover Enterprise v1.2 · Robocopy-only Windows pilot · No automatic deletions, ACL verification or client redirection.</footer>
         </div>
       </div>
@@ -484,7 +522,8 @@
       <div class="field"><label for="jobName">Job name</label><input id="jobName" name="name" required minlength="3" maxlength="100" placeholder="Finance share migration"></div>
       <div class="field"><label for="jobSource">Source UNC path</label><input id="jobSource" name="source" required placeholder="\\FS01\Shares\Finance"></div>
       <div class="field"><label for="jobDestination">Destination UNC path</label><input id="jobDestination" name="destination" required placeholder="\\FS02\Shares\Finance"></div>
-      <div class="field"><label for="scheduleType">Replication schedule</label><select id="scheduleType" name="schedule_type"><option value="manual">Manual / on demand</option><option value="once">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="continuous">Continuous · watch for changes</option></select></div>
+      <div class="field"><label for="scheduleType">Replication schedule</label><select id="scheduleType" name="schedule_type"><option value="manual">Manual / on demand</option><option value="once">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron expression</option><option value="continuous">Continuous · watch for changes</option></select></div>
+      <div class="field" id="cronSchedule" hidden><label for="jobCron">Cron expression</label><input id="jobCron" name="cron" maxlength="100" placeholder="0 2 * * *"><small>Five-field cron expression in the configured server time zone.</small></div>
       <div class="field" id="continuousScheduleNote" hidden><small>Uses the separate Windows replication worker. Source changes are copied after a short debounce, with periodic reconciliation. Source deletions are not propagated; source content overwrites destination edits.</small></div>
       <div class="field" id="oneTimeSchedule" hidden><label for="scheduledAt">Run date and time (server time zone)</label><input id="scheduledAt" name="scheduled_at" type="datetime-local"></div>
       <div class="field" id="recurringSchedule" hidden><label for="scheduleTime">Run time (server time zone)</label><input id="scheduleTime" name="schedule_time" type="time"></div>
@@ -493,7 +532,7 @@
       <div class="field"><label for="executionMode">Manual run response</label><select id="executionMode" name="execution_mode"><option value="async">Queue in background (return immediately)</option><option value="sync">Wait for completion</option></select><small>This controls how a manual request responds; it does not continuously replicate file changes.</small></div>
       <div class="field"><label for="jobThreads">Robocopy threads (1–32)</label><input id="jobThreads" name="threads" type="number" min="1" max="32" value="16" required></div>
       <div class="modal-note">Jobs can only use paths under approved roots. Add or remove roots with Manage approved roots. Schedule times use the server's configured DATAMOVER_TZ time zone.</div>
-      <div class="modal-actions"><button class="button" type="button" id="cancelModal">Cancel</button><button class="button primary" type="submit">Create job</button></div>
+      <div class="modal-actions"><button class="button" type="button" id="cancelModal">Cancel</button><button class="button primary" id="saveJobButton" type="submit">Create job</button></div>
     </form>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -528,6 +567,7 @@
     let currentUser = null;
     let jobs = [];
     let selectedId = null;
+    let editingJobId = null;
     let selectedRuns = [];
     let selectedEvents = [];
     let refreshBusy = false;
@@ -545,8 +585,11 @@
     };
     function scheduleLabel(job) {
       if (job.schedule_type === 'continuous') {
-        return demoMode ? 'Continuous · simulated' :
-          job.continuous_ready ? 'Continuous · change watcher' : 'Continuous · waiting for Dry-Run';
+        if (demoMode) return 'Continuous · simulated';
+        if (job.continuous_ready) return 'Continuous · monitoring';
+        return job.dry_run_ok
+          ? 'Continuous · ready for initial sync'
+          : 'Continuous · Dry-Run required';
       }
       if (job.schedule_type === 'once') return `Once · ${String(job.scheduled_at || '').replace('T', ' ')}`;
       if (job.schedule_type === 'daily') return `Daily at ${job.schedule_time}`;
@@ -567,7 +610,8 @@
     const demoJobs = [
       { id: 1, name: 'Finance share migration', source: '\\\\FS01\\Shares\\Finance', destination: '\\\\FS02\\Shares\\Finance', status: 'success', phase: 'sync', last_exit: 0, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: '0 2 * * *' },
       { id: 2, name: 'Marketing archive', source: '\\\\FS01\\Departments\\Marketing', destination: '\\\\FS02\\Departments\\Marketing', status: 'success', phase: 'dry-run', last_exit: 1, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 1, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: null },
-      { id: 3, name: 'Engineering workspaces', source: '\\\\FS03\\Teams\\Engineering', destination: '\\\\FS04\\Teams\\Engineering', status: 'handed-off', phase: 'final', last_exit: 0, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 1, frozen: 1, approved: 1, final_verified: 1, handoff: 1, created: new Date().toISOString(), threads: 16, cron: null }
+      { id: 3, name: 'Engineering workspaces', source: '\\\\FS03\\Teams\\Engineering', destination: '\\\\FS04\\Teams\\Engineering', status: 'handed-off', phase: 'final', last_exit: 0, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 1, frozen: 1, approved: 1, final_verified: 1, handoff: 1, created: new Date().toISOString(), threads: 16, cron: null },
+      { id: 4, name: 'Operations continuous replication', source: '\\\\FS01\\Shares\\Operations', destination: '\\\\FS02\\Shares\\Operations', status: 'success', phase: 'sync', last_exit: 0, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, continuous_ready: 1, validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, schedule_type: 'continuous' }
     ];
     const demoRuns = [{ id: 1, job_id: 1, mode: 'sync', started: new Date().toISOString(), status: 'success', exit_code: 0, log_file: 'Demo simulation', summary: 'Sample run completed; no worker was started.' }];
     const demoEvents = [
@@ -629,7 +673,16 @@
       }
 
       requireDemoUser();
-      if (path === '/health' && method === 'GET') return { service: 'ok', engine: 'Robocopy simulation', platform: 'demo', jobs_running: demoJobs.filter(job => job.status === 'running').length, replication_worker_online: false };
+      if (path === '/health' && method === 'GET') return {
+        service: 'ok', engine: 'Robocopy simulation', platform: 'demo',
+        jobs_running: demoJobs.filter(job => job.status === 'running').length,
+        replication_worker_online: true,
+        continuous_jobs: demoJobs.filter(job => job.schedule_type === 'continuous').map(job => ({
+          id: job.id, name: job.name, state: job.continuous_ready ? 'watching' : 'dry-run-required',
+          dry_run_ok: Boolean(job.dry_run_ok), continuous_ready: Boolean(job.continuous_ready),
+          run_status: job.status, last_exit: job.last_exit, last_finished: job.last_finished, last_error: null
+        }))
+      };
       if (path === '/roots' && method === 'GET') return demoRoots.map(root => ({ ...root }));
       if (path === '/roots' && method === 'POST') {
         const root = String(body.path || '').trim();
@@ -668,6 +721,17 @@
         if (!job) throw new ApiError(404, 'Job not found');
         return { ...job };
       }
+      if (detailMatch && method === 'PUT') {
+        const job = demoJobs.find(item => item.id === Number(detailMatch[1]));
+        if (!job) throw new ApiError(404, 'Job not found');
+        if (job.status === 'queued' || job.status === 'running' || job.handoff) throw new ApiError(409, 'This demo job cannot be edited right now');
+        Object.assign(job, body, {
+          status: 'idle', phase: 'created', dry_run_ok: 0, continuous_ready: 0,
+          validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0,
+          last_exit: null, last_started: null, last_finished: null
+        });
+        return { ...job };
+      }
       const historyMatch = path.match(/^\/jobs\/(\d+)\/(events|runs)$/);
       if (historyMatch && method === 'GET') {
         const jobId = Number(historyMatch[1]);
@@ -679,6 +743,10 @@
         const job = demoJobs.find(item => item.id === Number(runMatch[1]));
         if (!job) throw new ApiError(404, 'Job not found');
         const mode = runMatch[2];
+        if (mode === 'sync' && job.schedule_type === 'continuous' &&
+            !job.continuous_ready && !job.dry_run_ok) {
+          throw new ApiError(409, 'Run a successful Dry-Run before starting continuous replication');
+        }
         const now = new Date().toISOString();
         job.status = 'success';
         job.phase = mode;
@@ -688,9 +756,14 @@
         if (mode === 'dry-run') {
           job.dry_run_ok = 1;
           job.validated = job.frozen = job.approved = job.final_verified = 0;
-          if (job.schedule_type === 'continuous') job.continuous_ready = 1;
         }
-        if (mode === 'sync') Object.assign(job, { dry_run_ok: 0, validated: 0, frozen: 0, approved: 0, final_verified: 0 });
+        if (mode === 'sync') {
+          Object.assign(job, { dry_run_ok: 0, validated: 0, frozen: 0, approved: 0, final_verified: 0 });
+          if (job.schedule_type === 'continuous') {
+            job.dry_run_ok = 1;
+            job.continuous_ready = 1;
+          }
+        }
         if (mode === 'final') job.final_verified = 0;
         demoRuns.unshift({ id: demoRuns.length + 1, job_id: job.id, mode, started: now, status: 'success', exit_code: job.last_exit, log_file: 'Demo simulation', summary: 'Sample run only; no worker was started.' });
         demoEvents.unshift({ job_id: job.id, ts: now, level: 'info', message: `Demo ${mode} completed in simulation.` });
@@ -778,6 +851,8 @@
       $('lockButton').hidden = false;
       $('rootsButton').hidden = false;
       $('usersButton').hidden = !currentUser?.is_admin;
+      $('adNavLink').hidden = demoMode || !currentUser?.is_admin;
+      $('directory-section').hidden = demoMode || !currentUser?.is_admin;
       $('connectionState').classList.add('connected');
       $('connectionState').innerHTML = '<span class="dot connected"></span> Connected';
       $('controllerDot').classList.add('connected');
@@ -789,6 +864,49 @@
     }
     function statusClass(status) {
       return ['idle', 'queued', 'running', 'success', 'failed', 'handed-off'].includes(status) ? status : 'idle';
+    }
+    function monitorStateLabel(state) {
+      return ({
+        watching: 'Watching source',
+        starting: 'Starting watcher',
+        error: 'Watcher error',
+        'worker-offline': 'Worker offline',
+        'dry-run-required': 'Dry-Run required',
+        'initial-sync-required': 'Initial sync required',
+        frozen: 'Paused for source freeze',
+        'handed-off': 'Handed off',
+        stopped: 'Stopped'
+      })[state] || state || 'Unknown';
+    }
+    function renderReplicationMonitor(health) {
+      const badge = $('replicationWorkerBadge');
+      const online = demoMode || health.replication_worker_online;
+      badge.className = `status ${demoMode ? 'ready' : online ? 'watching' : 'offline'}`;
+      badge.textContent = demoMode ? 'Demo simulation' : online ? 'Worker online' : 'Worker offline';
+      const continuousJobs = health.continuous_jobs || [];
+      if (!continuousJobs.length) {
+        $('continuousMonitorJobs').innerHTML = '<div class="panel-sub">No continuous migration jobs configured.</div>';
+        return;
+      }
+      $('continuousMonitorJobs').innerHTML = continuousJobs.map(job => {
+        const state = demoMode
+          ? job.continuous_ready ? 'watching' : job.dry_run_ok ? 'initial-sync-required' : 'dry-run-required'
+          : job.state;
+        const stateClass = state === 'watching' ? 'watching'
+        : state === 'error' ? 'error'
+        : state === 'worker-offline' ? 'offline'
+        : state === 'handed-off' ? 'handed-off'
+        : state === 'starting' ? 'starting' : 'required';
+        const lastResult = job.last_exit === null || job.last_exit === undefined
+          ? 'No completed sync yet'
+          : `Exit ${job.last_exit} · ${escapeHtml(formatTime(job.last_finished))}`;
+        return `<article class="monitor-item">
+          <strong>${escapeHtml(job.name)} · Job #${Number(job.id)}</strong>
+          <small><span class="status ${stateClass}">${escapeHtml(monitorStateLabel(state))}</span></small>
+          <small>Last sync: ${lastResult}</small>
+          ${job.last_error ? `<small class="error-text">${escapeHtml(job.last_error)}</small>` : ''}
+        </article>`;
+      }).join('');
     }
     function formatTime(value) {
       if (!value) return '—';
@@ -855,7 +973,12 @@
       const busy = job.status === 'running' || job.status === 'queued';
       const handedOff = Boolean(job.handoff);
       $('dryRunButton').disabled = busy || handedOff;
-      $('syncButton').disabled = busy || handedOff || Boolean(job.frozen);
+      const continuousNeedsPreflight = job.schedule_type === 'continuous' &&
+        !job.continuous_ready && !job.dry_run_ok;
+      $('syncButton').textContent = job.schedule_type === 'continuous' && !job.continuous_ready
+        ? 'Start replication' : 'Run sync';
+      $('syncButton').disabled = busy || handedOff || Boolean(job.frozen) || continuousNeedsPreflight;
+      $('editJobButton').disabled = busy || handedOff;
       $('finalButton').disabled = busy || handedOff || !(job.dry_run_ok && job.validated && job.frozen && job.approved);
       $('rollbackButton').disabled = false;
       $('validateButton').disabled = busy || !job.dry_run_ok || Boolean(job.validated) || handedOff;
@@ -870,7 +993,7 @@
         $('selectedJob').innerHTML = '<div class="panel-sub">Select a job to see its details.</div>';
         $('eventsList').innerHTML = '<div class="panel-sub">Select a job to load event history.</div>';
         $('runList').innerHTML = '<div class="panel-sub">Select a job to load runs.</div>';
-        ['dryRunButton', 'syncButton', 'finalButton', 'rollbackButton', 'validateButton', 'freezeButton', 'approveButton', 'verifyButton', 'handoffButton'].forEach(id => $(id).disabled = true);
+        ['dryRunButton', 'syncButton', 'editJobButton', 'finalButton', 'rollbackButton', 'validateButton', 'freezeButton', 'approveButton', 'verifyButton', 'handoffButton'].forEach(id => $(id).disabled = true);
         return;
       }
       $('selectedJob').innerHTML = `
@@ -887,6 +1010,7 @@
         <div class="meta-row"><span>Manual run response</span><strong>${escapeHtml(executionModeLabel(job))}</strong></div>
         <div class="meta-row"><span>Last run result</span><strong>${escapeHtml(job.last_exit === null ? 'No run recorded' : `Exit ${job.last_exit}`)}</strong></div>
         <div class="meta-row"><span>Data progress</span><strong>Not reported by this pilot</strong></div>`;
+      $('editJobButton').disabled = job.status === 'running' || job.status === 'queued' || Boolean(job.handoff);
       renderCutover(job);
       renderEvents();
       renderRuns();
@@ -924,6 +1048,7 @@
       try {
         const [health, result] = await Promise.all([api('/health'), api('/jobs')]);
         jobs = result;
+        renderReplicationMonitor(health);
         $('activeJobs').textContent = String(jobs.filter(job => job.status === 'running').length).padStart(2, '0');
         $('validatedJobs').textContent = String(jobs.filter(job => job.validated && !job.handoff).length).padStart(2, '0');
         $('completeJobs').textContent = String(jobs.filter(job => job.handoff).length).padStart(2, '0');
@@ -1008,6 +1133,7 @@
         ? 'Demo simulation only. Actions update sample data in this browser; nothing is sent to production.'
         : 'Controller connected. Review job status and cutover prerequisites before taking action.');
       await refresh();
+      if (!demoMode && currentUser?.is_admin) await loadAdSettings();
     }
     async function initializeAuth() {
       if (demoMode) {
@@ -1076,6 +1202,8 @@
       $('lockButton').hidden = true;
       $('rootsButton').hidden = true;
       $('usersButton').hidden = true;
+      $('adNavLink').hidden = true;
+      $('directory-section').hidden = true;
       $('rootsModal').classList.remove('open');
       $('connectionState').classList.remove('connected');
       $('connectionState').innerHTML = '<span class="dot"></span> Not connected';
@@ -1156,14 +1284,45 @@
       loadRoots();
       $('approvedRootInput').focus();
     }
+    function showAdSettingsMessage(message, type = 'error') {
+      $('adSettingsMessage').textContent = message;
+      $('adSettingsMessage').className = `message show ${type}`;
+    }
+    async function loadAdSettings() {
+      try {
+        const settings = await api('/admin/ad-settings');
+        $('adLdapUrl').value = settings.ldap_url || '';
+        $('adSearchBase').value = settings.search_base || '';
+        $('adCaCert').value = settings.ca_cert || '';
+        $('adOperatorGroup').value = settings.operator_group_dn || '';
+        $('adAdminGroup').value = settings.admin_group_dn || '';
+        $('adSettingsMessage').className = 'message';
+      } catch (error) {
+        showAdSettingsMessage(error.message);
+      }
+    }
+    async function refreshAdLoginOption() {
+      const methods = await api('/auth/methods');
+      const provider = $('authProvider');
+      const adOption = Array.from(provider.options).find(option => option.value === 'ad');
+      if (methods.ad && !adOption) provider.add(new Option('Active Directory (LDAP StartTLS)', 'ad'));
+      else if (!methods.ad && adOption) adOption.remove();
+      $('providerField').hidden = provider.options.length < 2;
+    }
     async function runAction(mode) {
       if (selectedId === null) return;
       if (mode === 'final' && !confirm('Confirm source writes are externally frozen and final sync is approved. Run Final Sync?')) return;
       try {
         const result = await api(`/jobs/${selectedId}/run/${mode}`, 'POST');
-        if (result.queued) showNotice(`${mode} queued for Job #${selectedId}.`);
+        const job = jobs.find(item => item.id === selectedId);
+        const continuousStart = mode === 'sync' && job?.schedule_type === 'continuous' && !job.continuous_ready;
+        if (result.queued) showNotice(continuousStart
+          ? `Initial sync queued for Job #${selectedId}. Continuous watching starts only after the sync succeeds.`
+          : `${mode} queued for Job #${selectedId}.`);
         else if (result.status === 'failed') showNotice(result.error || `${mode} failed for Job #${selectedId}.`, true);
-        else showNotice(`${mode} completed for Job #${selectedId}.`);
+        else showNotice(continuousStart
+          ? `Initial sync succeeded for Job #${selectedId}. Continuous watching will start shortly.`
+          : `${mode} completed for Job #${selectedId}.`);
         await refresh();
       } catch (error) { showNotice(error.message, true); }
     }
@@ -1180,11 +1339,50 @@
       } catch (error) { showNotice(error.message, true); }
     }
     function openModal() {
+      editingJobId = null;
+      $('jobForm').reset();
+      $('jobThreads').value = '16';
+      $('modalTitle').textContent = 'Create a migration job';
+      $('saveJobButton').textContent = 'Create job';
+      updateScheduleFields();
       $('jobModal').classList.add('open');
       $('jobName').focus();
     }
+    async function openEditJob() {
+      if (selectedId === null) return;
+      try {
+        const job = await api(`/jobs/${selectedId}`);
+        editingJobId = Number(job.id);
+        $('jobForm').reset();
+        $('jobName').value = job.name;
+        $('jobSource').value = job.source;
+        $('jobDestination').value = job.destination;
+        $('scheduleType').value = job.schedule_type || (job.cron ? 'cron' : 'manual');
+        $('scheduledAt').value = String(job.scheduled_at || '').slice(0, 16);
+        $('scheduleTime').value = job.schedule_time || '';
+        $('scheduleDay').value = job.schedule_day || '';
+        $('jobCron').value = job.cron || '';
+        $('jobThreads').value = String(job.threads || 16);
+        $('executionMode').value = job.execution_mode || 'async';
+        const selectedDays = new Set(job.schedule_days || []);
+        $('jobForm').querySelectorAll('input[name="schedule_days"]').forEach(input => {
+          input.checked = selectedDays.has(input.value);
+        });
+        $('modalTitle').textContent = 'Edit migration job';
+        $('saveJobButton').textContent = 'Save changes';
+        updateScheduleFields();
+        $('jobModal').classList.add('open');
+        $('jobName').focus();
+      } catch (error) { showNotice(error.message, true); }
+    }
     function closeModal() {
       $('jobModal').classList.remove('open');
+      editingJobId = null;
+      $('jobForm').reset();
+      $('jobThreads').value = '16';
+      $('modalTitle').textContent = 'Create a migration job';
+      $('saveJobButton').textContent = 'Create job';
+      updateScheduleFields();
     }
 
     $('loginForm').addEventListener('submit', signIn);
@@ -1198,6 +1396,50 @@
     $('refreshButton').addEventListener('click', () => currentUser ? refresh() : $('loginUsername').focus());
     $('usersButton').addEventListener('click', openUsers);
     $('rootsButton').addEventListener('click', openRoots);
+    $('adNavLink').addEventListener('click', loadAdSettings);
+    $('adSettingsForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      button.disabled = true;
+      $('adSettingsMessage').className = 'message';
+      try {
+        const settings = await api('/admin/ad-settings', 'PUT', {
+          ldap_url: $('adLdapUrl').value.trim(),
+          search_base: $('adSearchBase').value.trim(),
+          ca_cert: $('adCaCert').value.trim(),
+          operator_group_dn: $('adOperatorGroup').value.trim(),
+          admin_group_dn: $('adAdminGroup').value.trim()
+        });
+        $('adSettingsMessage').textContent = 'Active Directory settings saved.';
+        $('adSettingsMessage').className = 'message show success';
+        await refreshAdLoginOption();
+      } catch (error) {
+        showAdSettingsMessage(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    $('adTestForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      button.disabled = true;
+      $('adSettingsMessage').className = 'message';
+      const password = $('adTestPassword').value;
+      try {
+        const result = await api('/admin/ad-settings/test', 'POST', {
+          username: $('adTestUsername').value.trim(),
+          password
+        });
+        showAdSettingsMessage(result.authorized
+          ? `Connection successful. The account is authorized as ${result.is_admin ? 'an administrator' : 'an operator'}.`
+          : 'Connection successful, but the account is not in either configured DataMover group.', result.authorized ? 'success' : 'error');
+      } catch (error) {
+        showAdSettingsMessage(error.message);
+      } finally {
+        $('adTestPassword').value = '';
+        button.disabled = false;
+      }
+    });
     $('closeRootsModal').addEventListener('click', () => $('rootsModal').classList.remove('open'));
     $('rootsModal').addEventListener('click', event => { if (event.target === $('rootsModal')) $('rootsModal').classList.remove('open'); });
     $('rootForm').addEventListener('submit', async event => {
@@ -1232,19 +1474,23 @@
     $('allEventsButton').addEventListener('click', refresh);
     $('jobFilter').addEventListener('change', renderJobs);
     $('newJobButton').addEventListener('click', openModal);
+    $('editJobButton').addEventListener('click', openEditJob);
     function updateScheduleFields() {
       const type = $('scheduleType').value;
       const oneTime = type === 'once';
       const recurring = ['daily', 'weekly', 'monthly'].includes(type);
       const continuous = type === 'continuous';
+      const cron = type === 'cron';
       $('oneTimeSchedule').hidden = !oneTime;
       $('recurringSchedule').hidden = !recurring;
       $('weeklySchedule').hidden = type !== 'weekly';
       $('monthlySchedule').hidden = type !== 'monthly';
+      $('cronSchedule').hidden = !cron;
       $('continuousScheduleNote').hidden = !continuous;
       $('scheduledAt').required = oneTime;
       $('scheduleTime').required = recurring;
       $('scheduleDay').required = type === 'monthly';
+      $('jobCron').required = cron;
       $('executionMode').disabled = continuous;
       if (continuous) $('executionMode').value = 'async';
       $('continuousScheduleNote').textContent = demoMode
@@ -1292,15 +1538,20 @@
         showNotice('Select at least one weekday for a weekly schedule.', true);
         return;
       }
-      form.cron = null;
+      form.cron = form.schedule_type === 'cron' ? String(form.cron || '').trim() : null;
       try {
-        const job = await api('/jobs', 'POST', form);
+        const job = editingJobId
+          ? await api(`/jobs/${editingJobId}`, 'PUT', form)
+          : await api('/jobs', 'POST', form);
         selectedId = job.id;
         formElement.reset();
         $('jobThreads').value = '16';
         updateScheduleFields();
+        const wasEditing = Boolean(editingJobId);
         closeModal();
-        showNotice('Migration job created.');
+        showNotice(wasEditing
+          ? 'Migration job updated. Repeat the Dry-Run and required cutover checks.'
+          : 'Migration job created.');
         await refresh();
       } catch (error) { showNotice(error.message, true); }
     });

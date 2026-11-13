@@ -33,10 +33,10 @@ Keep `.env` readable only by administrators and the API identity. Keep `.worker.
 Authentication options:
 
 - **Local:** username/password accounts are stored in the application SQLite database. The first administrator is created through the one-time setup page; administrators can create and disable additional local accounts.
-- **Active Directory:** set `DATAMOVER_AD_LDAP_URL` to an `ldap://` directory URL. Authentication uses LDAP StartTLS with certificate validation; configure `DATAMOVER_AD_CA_CERT` when the directory CA is not in the host trust store. Users sign in with their user principal name.
+- **Active Directory:** local administrators can configure the LDAP URL, CA certificate path, search base DN, and direct Operators and Administrators group DNs in the Active Directory section. The optional `DATAMOVER_AD_*` environment values provide initial defaults. Authentication uses LDAP StartTLS with certificate validation; users sign in with their user principal name. Administrators inherit operator access; users must be direct members of at least one configured group. Test credentials are transient and are never stored.
 - **Microsoft Entra ID:** configure the app registration client ID/secret, HTTPS redirect URI (`https://<host>/auth/entra/callback`), and comma-separated tenant UUID allowlist. Only identities issued by an allowlisted tenant can sign in.
 
-All authenticated users can operate migration jobs; local administrator privileges are limited to local account management.
+Authorized operators can operate migration jobs; local administrator privileges also allow local account management and Active Directory configuration.
 
 ## Architecture
 
@@ -60,7 +60,9 @@ The worker launches an argument list via `subprocess.Popen(shell=False)` and use
 
 ## Scheduling
 
-Jobs can run manually, once at a selected date/time, daily, weekly, monthly, or continuously. **Continuous** uses Windows file-change notifications, coalesces bursts for two seconds, and runs a full-tree reconciliation every `DATAMOVER_RECONCILE_SECONDS` (default five minutes) to recover missed network-share notifications. This is near-real-time, not instantaneous. Deletions are not propagated; source-side file content overwrites destination edits. The worker service must remain running. If it is offline, jobs remain queued and the console reports the worker as offline.
+Jobs can run manually, once at a selected date/time, daily, weekly, monthly, or continuously. **Continuous** requires a successful Dry-Run followed by a successful initial Run Sync; only then does the worker start watching. It uses Windows file-change notifications, coalesces bursts for two seconds, and runs a full-tree reconciliation every `DATAMOVER_RECONCILE_SECONDS` (default five minutes) to recover missed network-share notifications. This is near-real-time, not instantaneous. Deletions are not propagated; source-side file content overwrites destination edits. The dashboard reports worker and per-job watcher state, latest sync outcome, and errors, but not byte progress or ETA. The worker service must remain running. If it is offline, jobs remain queued and the console reports the worker as offline.
+
+Migration jobs can be edited while idle. Queued, running, and handed-off jobs cannot be changed. Saving an edit clears prior Dry-Run, validation, freeze, approval, final-verification, and continuous-readiness state; repeat the required checks before operating the updated job.
 
 **Manual run response** only controls whether the browser request waits for the worker result or returns after queueing; it does not control replication frequency. Long waits can exceed browser or proxy timeouts. Times for one-time and recurring jobs use `DATAMOVER_TZ`; monthly days 29–31 are skipped in months without that day. Existing five-field cron schedules continue to work. The single API instance schedules dated/recurring triggers; start only **one** Uvicorn worker. Do not run multiple API replicas against the same SQLite file.
 
@@ -88,6 +90,6 @@ Jobs can run manually, once at a selected date/time, daily, weekly, monthly, or 
 
 ## API endpoints
 
-Protected job and health endpoints require a signed session. Mutating requests also require the session's `X-CSRF-Token`. Public auth endpoints are `GET /api/auth/methods`, `POST /api/auth/setup`, `POST /api/auth/local`, and `POST /api/auth/ad`; Entra uses `/auth/entra/login` and `/auth/entra/callback`. Authenticated users can use `POST /api/auth/logout`, `GET /api/health`, `GET /api/jobs`, `POST /api/jobs`, `GET /api/jobs/{id}`, `GET /api/jobs/{id}/events`, `GET /api/jobs/{id}/runs`, `POST /api/jobs/{id}/run/{dry-run|sync|final}`, `POST /api/jobs/{id}/validate`, `/freeze`, `/approve`, `/verify-final`, `/handoff` and `GET /api/jobs/{id}/rollback-plan`. Local administrators manage local accounts through `/api/users`. Attestation requests use `{"confirmed":true,"note":"Change ticket CHG-12345 verified by operator"}`.
+Protected job and health endpoints require a signed session. Mutating requests also require the session's `X-CSRF-Token`. Public auth endpoints are `GET /api/auth/methods`, `POST /api/auth/setup`, `POST /api/auth/local`, and `POST /api/auth/ad`; Entra uses `/auth/entra/login` and `/auth/entra/callback`. Authenticated operators can use `POST /api/auth/logout`, `GET /api/health`, `GET /api/jobs`, `POST /api/jobs`, `GET` and `PUT /api/jobs/{id}`, `GET /api/jobs/{id}/events`, `GET /api/jobs/{id}/runs`, `POST /api/jobs/{id}/run/{dry-run|sync|final}`, `POST /api/jobs/{id}/validate`, `/freeze`, `/approve`, `/verify-final`, `/handoff` and `GET /api/jobs/{id}/rollback-plan`. Local administrators manage local accounts through `/api/users` and Active Directory settings through `/api/admin/ad-settings`; the AD connection test is `/api/admin/ad-settings/test`. Attestation requests use `{"confirmed":true,"note":"Change ticket CHG-12345 verified by operator"}`.
 
 See `docs/IMPLEMENTATION.md` for detailed deployment and acceptance checklist.

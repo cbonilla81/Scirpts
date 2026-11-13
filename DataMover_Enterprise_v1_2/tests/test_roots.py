@@ -145,6 +145,110 @@ def test_continuous_job_uses_worker_and_requires_background_mode(roots_db):
         )
 
 
+def test_continuous_replication_starts_only_after_dry_run_and_successful_initial_sync(
+    roots_db, monkeypatch
+):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Continuous migration',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+        schedule_type='continuous',
+    ))
+
+    with pytest.raises(HTTPException) as error:
+        main.submit(job['id'], 'sync')
+    assert error.value.status_code == 409
+
+    main.sql('UPDATE jobs SET dry_run_ok=1 WHERE id=?', (job['id'],))
+    run_id = main.sql(
+        'INSERT INTO runs(job_id,mode,started,status) VALUES(?,?,?,?)',
+        (job['id'], 'sync', main.now(), 'running'),
+    )
+
+    class Process:
+        stdout = ['Robocopy completed\n']
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(main.engine, 'command', lambda *args, **kwargs: ['robocopy.exe'])
+    monkeypatch.setattr(main.subprocess, 'Popen', lambda *args, **kwargs: Process())
+    main.run_job(job['id'], 'sync', run_id)
+
+    updated = main.get_job(job['id'])
+    assert updated['continuous_ready'] == 1
+    assert updated['dry_run_ok'] == 1
+
+    main.sql('UPDATE jobs SET dry_run_ok=0 WHERE id=?', (job['id'],))
+    main.sql(
+        'INSERT INTO worker_heartbeats(name,updated) VALUES(?,?)',
+        ('replication', main.now()),
+    )
+    main.sql(
+        'INSERT INTO worker_watchers(job_id,status,updated) VALUES(?,?,?)',
+        (job['id'], 'watching', main.now()),
+    )
+    assert main.continuous_job_status(True)[0]['state'] == 'watching'
+
+
+def test_editing_job_resets_readiness_and_cutover_attestations(roots_db):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Editable migration',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+        schedule_type='continuous',
+    ))
+    main.sql(
+        '''UPDATE jobs SET dry_run_ok=1,continuous_ready=1,validated=1,frozen=1,
+           approved=1,final_verified=1 WHERE id=?''',
+        (job['id'],),
+    )
+
+    updated = main.update_job(job['id'], main.JobIn(
+        name='Updated migration',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+        schedule_type='manual',
+    ))
+
+    assert updated['name'] == 'Updated migration'
+    assert updated['schedule_type'] == 'manual'
+    assert updated['status'] == 'idle'
+    assert updated['dry_run_ok'] == 0
+    assert updated['continuous_ready'] == 0
+    assert updated['validated'] == updated['frozen'] == updated['approved'] == 0
+    assert updated['final_verified'] == 0
+    assert updated['last_exit'] is None
+    assert updated['last_started'] is None
+    assert updated['last_finished'] is None
+
+
+def test_ad_settings_persist_and_admin_group_inherits_operator_access(roots_db):
+    main = roots_db
+    settings = main.update_ad_settings(main.ADSettingsIn(
+        ldap_url='ldap://dc.example.com:389',
+        search_base='DC=example,DC=com',
+        operator_group_dn='CN=DataMover Operators,OU=Groups,DC=example,DC=com',
+        admin_group_dn='CN=DataMover Administrators,OU=Groups,DC=example,DC=com',
+    ))
+
+    assert settings['enabled'] is True
+    assert main.get_ad_settings() == settings
+    assert main.ad_group_roles(
+        ['CN=DataMover Administrators,OU=Groups,DC=example,DC=com'], settings
+    ) == (True, True)
+    assert main.ad_group_roles(['CN=Other,OU=Groups,DC=example,DC=com'], settings) == (False, False)
+    with pytest.raises(ValidationError):
+        main.ADSettingsIn(
+            ldap_url='ldap://dc.example.com:389',
+            search_base='DC=example,DC=com',
+            operator_group_dn='CN=DataMover Operators,OU=Groups,DC=example,DC=com',
+            admin_group_dn='cn=datamover operators,ou=groups,dc=example,dc=com',
+        )
+
+
 def test_async_run_is_persistently_queued_for_worker(roots_db):
     main = roots_db
     job = main.create_job(main.JobIn(

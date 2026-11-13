@@ -66,14 +66,15 @@ def verify_password(password: str, encoded: str) -> bool:
 
 
 def authenticate_ad(username: str, password: str, ldap_url: str, ca_cert: str | None = None,
-                    timeout: int = 5) -> None:
+                    search_base: str | None = None, timeout: int = 5) -> set[str]:
     parsed = urlsplit(ldap_url)
     if parsed.scheme.casefold() != 'ldap' or not parsed.hostname or parsed.path not in ('', '/'):
         raise DirectoryUnavailable('AD must be configured with an ldap:// URL for StartTLS')
 
     try:
-        from ldap3 import AUTO_BIND_TLS_BEFORE_BIND, NONE, SIMPLE, Connection, Server, Tls
+        from ldap3 import AUTO_BIND_TLS_BEFORE_BIND, NONE, SIMPLE, SUBTREE, Connection, Server, Tls
         from ldap3.core.exceptions import LDAPBindError, LDAPException
+        from ldap3.utils.conv import escape_filter_chars
     except ImportError as exc:
         raise DirectoryUnavailable('The LDAP authentication dependency is unavailable') from exc
 
@@ -98,6 +99,17 @@ def authenticate_ad(username: str, password: str, ldap_url: str, ca_cert: str | 
             auto_referrals=False,
             raise_exceptions=True,
         )
+        if not search_base:
+            raise DirectoryUnavailable('Active Directory search base is not configured')
+        search_filter = (
+            '(&(objectCategory=person)(objectClass=user)'
+            f'(userPrincipalName={escape_filter_chars(username)}))'
+        )
+        if not connection.search(search_base, search_filter, search_scope=SUBTREE,
+                                 attributes=['memberOf']) or not connection.entries:
+            raise DirectoryUnavailable('Authenticated account was not found in the configured search base')
+        groups = connection.entries[0].entry_attributes_as_dict.get('memberOf', [])
+        return {str(group).strip().casefold() for group in groups}
     except LDAPBindError as exc:
         raise InvalidCredentials('Invalid Active Directory credentials') from exc
     except LDAPException as exc:

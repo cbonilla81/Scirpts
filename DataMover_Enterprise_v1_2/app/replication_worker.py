@@ -47,6 +47,15 @@ if RECONCILE_SECONDS < 60:
     raise RuntimeError('DATAMOVER_RECONCILE_SECONDS must be at least 60')
 
 
+def set_watcher_status(job_id, status, error=None):
+    main.sql(
+        '''INSERT INTO worker_watchers(job_id,status,updated,error) VALUES(?,?,?,?)
+           ON CONFLICT(job_id) DO UPDATE SET status=excluded.status,
+           updated=excluded.updated,error=excluded.error''',
+        (job_id, status, main.now(), error),
+    )
+
+
 class ChangeHandler(FileSystemEventHandler):
     def __init__(self, job_id, mark_changed):
         self.job_id = job_id
@@ -82,9 +91,11 @@ class ReplicationWorker:
         except (OSError, RuntimeError, main.engine.EngineError) as exc:
             self.retry_after[job_id] = time.monotonic() + RETRY_SECONDS
             main.event(job_id, 'error', f'Continuous watcher could not start: {exc}')
+            set_watcher_status(job_id, 'error', str(exc)[:500])
             LOGGER.error('Unable to watch Job #%s source: %s', job_id, exc)
             return
         self.observers[job_id] = observer
+        set_watcher_status(job_id, 'watching')
         with self.pending_lock:
             self.pending[job_id] = time.monotonic()
         self.next_reconcile[job_id] = time.monotonic() + RECONCILE_SECONDS
@@ -97,6 +108,7 @@ class ReplicationWorker:
             observer.stop()
             observer.join(timeout=10)
             main.event(job_id, 'info', 'Continuous source watcher stopped')
+        set_watcher_status(job_id, 'stopped')
         with self.pending_lock:
             self.pending.pop(job_id, None)
         self.next_reconcile.pop(job_id, None)
@@ -231,6 +243,10 @@ def run_worker(stop_event):
     )
     main.init_db()
     lock_file = acquire_service_lock()
+    main.sql(
+        "UPDATE worker_watchers SET status='stopped',updated=?,error=NULL",
+        (main.now(),),
+    )
     worker = ReplicationWorker(stop_event)
     try:
         recover_interrupted_runs()
