@@ -2,7 +2,7 @@
 
 ## 1. Prerequisites
 
-- Windows Server 2019/2022/2025 migration host with Python 3.11+ and built-in Robocopy.
+- Windows Server 2019/2022/2025 migration host with Python 3.11+ installed for all users (or otherwise readable/executable by the worker gMSA) and built-in Robocopy.
 - Dedicated domain service identity, approved source/destination SMB shares, change ticket, backup/rollback owner.
 - Confirm network connectivity and disk space; for 10–100 TB, benchmark throughput, plan change windows and run small pilots first.
 - Ensure NTFS ACLs, owner and SACL requirements are understood. Share permissions, alternate data streams, open files, EFS, reparse points, and path-length behavior need separate acceptance testing.
@@ -42,7 +42,7 @@ notepad .worker.env
 .\scripts\Install-DataMover-ReplicationService.ps1 -ServiceAccount 'CONTOSO\svc_DataMover$'
 ```
 
-Use a dedicated gMSA with the required source read/backup and destination write/restore/security permissions. Grant it access to the shared state folder and `.worker.env`, not the API `.env`. The installer configures automatic startup and starts the service. It requires the gMSA to have Log on as a service rights. The API queues jobs while the worker is offline; the console reports worker availability. Closing the interactive API PowerShell window stops the web console, but the worker service continues replication.
+Use a dedicated gMSA with the required source read/backup and destination write/restore/security permissions. Grant it read/execute access to the project `app`, `scripts`, and `.venv` folders, read access to `.worker.env`, and Modify access to the shared state folder. Do not grant access to the API `.env`. The installer configures automatic startup and starts the service. The gMSA needs Log on as a service rights. The API queues jobs while the worker is offline; the console reports worker availability. Closing the interactive API PowerShell window stops the web console, but the worker service continues replication.
 
 ### Configure sign-in
 

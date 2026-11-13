@@ -22,9 +22,12 @@ $python = Resolve-Path '.venv\Scripts\python.exe'
 if ($LASTEXITCODE -ne 0) { throw 'Could not install DataMover worker dependencies.' }
 & $python 'scripts\DataMoverReplicationService.py' install
 if ($LASTEXITCODE -ne 0) { throw 'Could not install the DataMover replication service.' }
-& sc.exe config DataMoverReplication 'start= auto' "obj= $ServiceAccount" 'password= ""'
+$scCommand = 'sc.exe config DataMoverReplication start= auto obj= "{0}" password= ""' -f $ServiceAccount
+& $env:ComSpec /d /c $scCommand
 if ($LASTEXITCODE -ne 0) { throw 'Could not configure the service account and automatic startup.' }
-Write-Host 'Set the service Log On account to a dedicated gMSA with source read and destination write/security rights.'
-Write-Host 'Grant the service account access to DATAMOVER_STATE and .worker.env, not the web console .env file.'
+Write-Host 'Ensure the gMSA has Log on as a service and source read/destination write-security rights.'
+Write-Host 'Grant read/execute to app, scripts, and .venv; read to .worker.env; Modify to DATAMOVER_STATE.'
+Write-Host 'The gMSA also needs read/execute access to the Python base installation referenced by .venv\pyvenv.cfg.'
+Write-Host 'Do not grant the worker access to the web console .env file.'
 Write-Host 'Starting the service now.'
 Start-Service DataMoverReplication
