@@ -228,6 +228,9 @@
     .close { border: 0; color: #718196; background: none; font-size: 20px; }
     .field { margin-bottom: 13px; }
     .field input, .field select, .field textarea { width: 100%; min-height: 37px; padding: 0 10px; border: 1px solid #dfe6ef; border-radius: 7px; color: #344a62; background: white; font-size: 11px; }
+    .weekday-options { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+    .weekday-options label { display: flex; align-items: center; gap: 4px; margin: 0; }
+    .field .weekday-options input { width: auto; min-height: 0; margin: 0; padding: 0; }
     .modal-note { margin: 5px 0 17px; padding: 10px; border-radius: 7px; color: #62758b; background: #f3f7fc; font-size: 9px; line-height: 1.5; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .toast { position: fixed; right: 24px; bottom: 22px; z-index: 7; max-width: 360px; padding: 12px 15px; border: 1px solid #dce8f4; border-radius: 9px; color: #29455f; background: white; box-shadow: 0 8px 30px #152b4320; font-size: 11px; opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s; }
@@ -480,9 +483,14 @@
       <div class="field"><label for="jobName">Job name</label><input id="jobName" name="name" required minlength="3" maxlength="100" placeholder="Finance share migration"></div>
       <div class="field"><label for="jobSource">Source UNC path</label><input id="jobSource" name="source" required placeholder="\\FS01\Shares\Finance"></div>
       <div class="field"><label for="jobDestination">Destination UNC path</label><input id="jobDestination" name="destination" required placeholder="\\FS02\Shares\Finance"></div>
-      <div class="field"><label for="jobCron">Schedule (optional, five-field cron)</label><input id="jobCron" name="cron" placeholder="0 2 * * *"></div>
+      <div class="field"><label for="scheduleType">Schedule</label><select id="scheduleType" name="schedule_type"><option value="manual">Manual / on demand</option><option value="once">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+      <div class="field" id="oneTimeSchedule" hidden><label for="scheduledAt">Run date and time (server time zone)</label><input id="scheduledAt" name="scheduled_at" type="datetime-local"></div>
+      <div class="field" id="recurringSchedule" hidden><label for="scheduleTime">Run time (server time zone)</label><input id="scheduleTime" name="schedule_time" type="time"></div>
+      <div class="field" id="weeklySchedule" hidden><label>Days of the week</label><div class="weekday-options"><label><input type="checkbox" name="schedule_days" value="mon"> Mon</label><label><input type="checkbox" name="schedule_days" value="tue"> Tue</label><label><input type="checkbox" name="schedule_days" value="wed"> Wed</label><label><input type="checkbox" name="schedule_days" value="thu"> Thu</label><label><input type="checkbox" name="schedule_days" value="fri"> Fri</label><label><input type="checkbox" name="schedule_days" value="sat"> Sat</label><label><input type="checkbox" name="schedule_days" value="sun"> Sun</label></div></div>
+      <div class="field" id="monthlySchedule" hidden><label for="scheduleDay">Day of the month</label><select id="scheduleDay" name="schedule_day"><option value="">Select a day</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option><option>16</option><option>17</option><option>18</option><option>19</option><option>20</option><option>21</option><option>22</option><option>23</option><option>24</option><option>25</option><option>26</option><option>27</option><option>28</option><option>29</option><option>30</option><option>31</option></select><small>Months without the selected day will be skipped.</small></div>
+      <div class="field"><label for="executionMode">Run mode</label><select id="executionMode" name="execution_mode"><option value="async">Asynchronous (run in background)</option><option value="sync">Synchronous (wait for completion)</option></select><small>Long synchronous runs may exceed browser or proxy timeouts.</small></div>
       <div class="field"><label for="jobThreads">Robocopy threads (1–32)</label><input id="jobThreads" name="threads" type="number" min="1" max="32" value="16" required></div>
-      <div class="modal-note">Jobs can only use paths under approved roots. Add or remove roots with Manage approved roots. Schedules use the server's configured time zone.</div>
+      <div class="modal-note">Jobs can only use paths under approved roots. Add or remove roots with Manage approved roots. Schedule times use the server's configured DATAMOVER_TZ time zone.</div>
       <div class="modal-actions"><button class="button" type="button" id="cancelModal">Cancel</button><button class="button primary" type="submit">Create job</button></div>
     </form>
   </div>
@@ -533,6 +541,15 @@
     const statusLabels = {
       idle: 'Idle', running: 'Running', success: 'Succeeded', failed: 'Failed', 'handed-off': 'Handed off'
     };
+    function scheduleLabel(job) {
+      if (job.schedule_type === 'once') return `Once · ${String(job.scheduled_at || '').replace('T', ' ')}`;
+      if (job.schedule_type === 'daily') return `Daily at ${job.schedule_time}`;
+      if (job.schedule_type === 'weekly') return `Weekly · ${(job.schedule_days || []).join(', ')} at ${job.schedule_time}`;
+      if (job.schedule_type === 'monthly') return `Monthly on day ${job.schedule_day} at ${job.schedule_time}`;
+      if (job.schedule_type === 'cron' || job.cron) return `Cron · ${job.cron}`;
+      return 'Manual';
+    }
+    const executionModeLabel = job => job.execution_mode === 'sync' ? 'Synchronous' : 'Background (async)';
     const demoMode = window.location.pathname === '/demo' ||
       new URLSearchParams(window.location.search).get('demo') === '1';
     const demoUsers = [];
@@ -630,7 +647,10 @@
           name: body.name, source: body.source, destination: body.destination, status: 'idle',
           phase: 'created', last_exit: null, last_started: null, last_finished: null,
           dry_run_ok: 0, validated: 0, frozen: 0, approved: 0, final_verified: 0,
-          handoff: 0, created: new Date().toISOString(), threads: body.threads, cron: body.cron,
+          handoff: 0, created: new Date().toISOString(), threads: body.threads, cron: body.cron || null,
+          schedule_type: body.schedule_type || 'manual', scheduled_at: body.scheduled_at || null,
+          schedule_time: body.schedule_time || null, schedule_days: body.schedule_days || [],
+          schedule_day: body.schedule_day || null, execution_mode: body.execution_mode || 'async',
         };
         demoJobs.unshift(job);
         demoEvents.unshift({ job_id: job.id, ts: job.created, level: 'info', message: 'Sample job created in demo mode.' });
@@ -664,7 +684,7 @@
         if (mode === 'final') job.final_verified = 0;
         demoRuns.unshift({ id: demoRuns.length + 1, job_id: job.id, mode, started: now, status: 'success', exit_code: job.last_exit, log_file: 'Demo simulation', summary: 'Sample run only; no worker was started.' });
         demoEvents.unshift({ job_id: job.id, ts: now, level: 'info', message: `Demo ${mode} completed in simulation.` });
-        return { accepted: true, mode };
+        return { accepted: true, queued: false, status: job.status, error: null, mode };
       }
       const attestationMatch = path.match(/^\/jobs\/(\d+)\/(validate|freeze|approve|verify-final|handoff)$/);
       if (attestationMatch && method === 'POST') {
@@ -853,7 +873,8 @@
           <div class="endpoint"><div class="endpoint-label">Destination</div><div class="endpoint-value" title="${escapeHtml(job.destination)}">${escapeHtml(job.destination)}</div></div>
         </div>
         <div class="meta-row"><span>Engine</span><strong>Robocopy · ${Number(job.threads || 16)} threads</strong></div>
-        <div class="meta-row"><span>Schedule</span><strong>${escapeHtml(job.cron || 'Manual')}</strong></div>
+        <div class="meta-row"><span>Schedule</span><strong>${escapeHtml(scheduleLabel(job))}</strong></div>
+        <div class="meta-row"><span>Run mode</span><strong>${escapeHtml(executionModeLabel(job))}</strong></div>
         <div class="meta-row"><span>Last run result</span><strong>${escapeHtml(job.last_exit === null ? 'No run recorded' : `Exit ${job.last_exit}`)}</strong></div>
         <div class="meta-row"><span>Data progress</span><strong>Not reported by this pilot</strong></div>`;
       renderCutover(job);
@@ -1120,8 +1141,10 @@
       if (selectedId === null) return;
       if (mode === 'final' && !confirm('Confirm source writes are externally frozen and final sync is approved. Run Final Sync?')) return;
       try {
-        await api(`/jobs/${selectedId}/run/${mode}`, 'POST');
-        showNotice(`${mode} accepted for Job #${selectedId}.`);
+        const result = await api(`/jobs/${selectedId}/run/${mode}`, 'POST');
+        if (result.queued) showNotice(`${mode} queued for Job #${selectedId}.`);
+        else if (result.status === 'failed') showNotice(result.error || `${mode} failed for Job #${selectedId}.`, true);
+        else showNotice(`${mode} completed for Job #${selectedId}.`);
         await refresh();
       } catch (error) { showNotice(error.message, true); }
     }
@@ -1190,6 +1213,20 @@
     $('allEventsButton').addEventListener('click', refresh);
     $('jobFilter').addEventListener('change', renderJobs);
     $('newJobButton').addEventListener('click', openModal);
+    function updateScheduleFields() {
+      const type = $('scheduleType').value;
+      const oneTime = type === 'once';
+      const recurring = ['daily', 'weekly', 'monthly'].includes(type);
+      $('oneTimeSchedule').hidden = !oneTime;
+      $('recurringSchedule').hidden = !recurring;
+      $('weeklySchedule').hidden = type !== 'weekly';
+      $('monthlySchedule').hidden = type !== 'monthly';
+      $('scheduledAt').required = oneTime;
+      $('scheduleTime').required = recurring;
+      $('scheduleDay').required = type === 'monthly';
+    }
+    $('scheduleType').addEventListener('change', updateScheduleFields);
+    updateScheduleFields();
     $('closeModal').addEventListener('click', closeModal);
     $('cancelModal').addEventListener('click', closeModal);
     $('jobModal').addEventListener('click', event => { if (event.target === $('jobModal')) closeModal(); });
@@ -1219,12 +1256,23 @@
       event.preventDefault();
       const form = Object.fromEntries(new FormData(formElement));
       form.threads = Number(form.threads);
-      form.cron = form.cron.trim() || null;
+      form.schedule_days = Array.from(formElement.querySelectorAll('input[name="schedule_days"]:checked'), input => input.value);
+      form.schedule_day = form.schedule_day ? Number(form.schedule_day) : null;
+      if (form.schedule_type !== 'once') form.scheduled_at = null;
+      if (!['daily', 'weekly', 'monthly'].includes(form.schedule_type)) form.schedule_time = null;
+      if (form.schedule_type !== 'weekly') form.schedule_days = [];
+      if (form.schedule_type !== 'monthly') form.schedule_day = null;
+      if (form.schedule_type === 'weekly' && !form.schedule_days.length) {
+        showNotice('Select at least one weekday for a weekly schedule.', true);
+        return;
+      }
+      form.cron = null;
       try {
         const job = await api('/jobs', 'POST', form);
         selectedId = job.id;
         formElement.reset();
         $('jobThreads').value = '16';
+        updateScheduleFields();
         closeModal();
         showNotice('Migration job created.');
         await refresh();

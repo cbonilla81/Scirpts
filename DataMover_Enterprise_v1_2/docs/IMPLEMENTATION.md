@@ -48,7 +48,7 @@ Create a small pilot job. Click **Dry-Run**. Verify that the job returns `succes
 
 ## 5. Baseline and incremental sync
 
-Click **Start Sync**. Inspect run logs and independently compare source/destination file counts, sizes, timestamps, selected hashes and NTFS ACLs. Schedule a cron expression such as `0 1 * * *`. Changes to permissions on unchanged files may need `/SECFIX`; final sync includes it. Note: `/E` does not remove destination-only files.
+Click **Start Sync**. Inspect run logs and independently compare source/destination file counts, sizes, timestamps, selected hashes and NTFS ACLs. Use the job schedule picker for a one-time date/time or a daily, weekly, or monthly recurrence; schedule times use `DATAMOVER_TZ`. Changes to permissions on unchanged files may need `/SECFIX`; final sync includes it. Note: `/E` does not remove destination-only files.
 
 ## 6. Controlled cutover
 
@@ -79,11 +79,11 @@ Stop application writes and confirm source freeze externally. Run fresh Dry-Run,
 - **403**: Missing/invalid CSRF token or Entra tenant not on the configured allowlist.
 - **429**: Too many failed sign-in attempts from the client address; wait ten minutes.
 - **Setup unavailable**: Check whether an initial administrator already exists and retrieve the one-time setup code from the service log.
-- **422**: UNC paths outside approved roots, unsafe characters, or invalid cron expression.
+- **422**: UNC paths outside approved roots, unsafe characters, or invalid schedule fields.
 - **409**: Job running, cutover prerequisite missing, source frozen, or job handed off.
 - **Exit >=8**: Inspect per-run Robocopy log and source/destination SMB permissions.
 - **Access denied**: Check worker identity, share permissions, NTFS DACL, backup/restore/security privileges, and remote access restrictions.
-- **No jobs scheduled**: Confirm one API process, valid cron and time zone, and the application is running during the scheduled window.
+- **No jobs scheduled**: Confirm one API process, the job schedule and time zone, and that the application is running during the scheduled window.
 
 ## 9. Limits for 10–100 TB
 

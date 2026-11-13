@@ -12,16 +12,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
+from typing import Literal
 from zoneinfo import ZoneInfo
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.middleware.sessions import SessionMiddleware
 from . import engine
 from .authentication import (
@@ -107,6 +109,8 @@ def init_db():
         db.executescript('''CREATE TABLE IF NOT EXISTS jobs (
         id INTEGER PRIMARY KEY, name TEXT NOT NULL, source TEXT NOT NULL, destination TEXT NOT NULL,
         cron TEXT, threads INTEGER NOT NULL DEFAULT 16, status TEXT NOT NULL DEFAULT 'idle',
+        schedule_type TEXT NOT NULL DEFAULT 'manual', scheduled_at TEXT, schedule_time TEXT,
+        schedule_days TEXT, schedule_day INTEGER, execution_mode TEXT NOT NULL DEFAULT 'async',
         phase TEXT NOT NULL DEFAULT 'created', last_exit INTEGER, last_started TEXT, last_finished TEXT,
         dry_run_ok INTEGER NOT NULL DEFAULT 0, validated INTEGER NOT NULL DEFAULT 0,
         frozen INTEGER NOT NULL DEFAULT 0, approved INTEGER NOT NULL DEFAULT 0,
@@ -122,6 +126,20 @@ def init_db():
         CREATE TABLE IF NOT EXISTS approved_roots (
         path TEXT PRIMARY KEY COLLATE NOCASE, created TEXT NOT NULL, created_by TEXT NOT NULL);
         ''')
+        columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
+        for name, definition in (
+            ('schedule_type', "TEXT NOT NULL DEFAULT 'manual'"),
+            ('scheduled_at', 'TEXT'),
+            ('schedule_time', 'TEXT'),
+            ('schedule_days', 'TEXT'),
+            ('schedule_day', 'INTEGER'),
+            ('execution_mode', "TEXT NOT NULL DEFAULT 'async'"),
+        ):
+            if name not in columns:
+                db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
+        db.execute(
+            "UPDATE jobs SET schedule_type='cron' WHERE cron IS NOT NULL AND TRIM(cron)!='' AND schedule_type='manual'"
+        )
         root_count = db.execute('SELECT COUNT(*) FROM approved_roots').fetchone()[0]
         if root_count == 0:
             db.executemany(
@@ -135,23 +153,51 @@ def get_approved_roots():
 def root_paths():
     return [root['path'] for root in get_approved_roots()]
 
+def decode_job(job):
+    job['schedule_days'] = json.loads(job['schedule_days']) if job.get('schedule_days') else []
+    return job
+
 def get_job(jid):
     job = sql('SELECT * FROM jobs WHERE id=?', (jid,), one=True)
     if not job:
         raise HTTPException(404, 'Job not found')
-    return job
+    return decode_job(job)
 
 def schedule(job):
     SCHED.remove_job(str(job['id'])) if SCHED.get_job(str(job['id'])) else None
-    if job['cron'] and not job['handoff']:
-        SCHED.add_job(lambda jid=job['id']: submit(jid, 'sync', scheduled=True),
-                      CronTrigger.from_crontab(job['cron'], timezone=TZ), id=str(job['id']),
-                      replace_existing=True, coalesce=True, max_instances=1, misfire_grace_time=120)
+    if job['handoff']:
+        return
+    schedule_type = job.get('schedule_type') or ('cron' if job.get('cron') else 'manual')
+    if schedule_type == 'cron' and job.get('cron'):
+        trigger = CronTrigger.from_crontab(job['cron'], timezone=TZ)
+    elif schedule_type == 'once' and job.get('scheduled_at'):
+        run_at = datetime.fromisoformat(job['scheduled_at'])
+        if (datetime.now(ZoneInfo(TZ)) - run_at).total_seconds() > 120:
+            event(job['id'], 'warning', 'One-time schedule skipped: more than two minutes late')
+            return
+        trigger = DateTrigger(run_date=run_at)
+    elif schedule_type in ('daily', 'weekly', 'monthly') and job.get('schedule_time'):
+        hour, minute = map(int, job['schedule_time'].split(':'))
+        fields = {'hour': hour, 'minute': minute, 'timezone': TZ}
+        if schedule_type == 'weekly':
+            days = job.get('schedule_days') or []
+            if isinstance(days, str):
+                days = json.loads(days)
+            fields['day_of_week'] = ','.join(days)
+        elif schedule_type == 'monthly':
+            fields['day'] = job['schedule_day']
+        trigger = CronTrigger(**fields)
+    else:
+        return
+    SCHED.add_job(lambda jid=job['id']: submit(jid, 'sync', scheduled=True),
+                  trigger, id=str(job['id']), replace_existing=True,
+                  coalesce=True, max_instances=1, misfire_grace_time=120)
 
 def invalidate(jid):
     sql('UPDATE jobs SET dry_run_ok=0, validated=0, frozen=0, approved=0, final_verified=0 WHERE id=?', (jid,))
 
 def submit(jid, mode, scheduled=False):
+    run_inline = False
     with LOCK:
         job = get_job(jid)
         if jid in ACTIVE:
@@ -175,12 +221,21 @@ def submit(jid, mode, scheduled=False):
         ACTIVE.add(jid)
         sql('UPDATE jobs SET status=?,phase=?,last_started=?,last_error=NULL WHERE id=?',
             ('running', mode, now(), jid))
-        try:
-            POOL.submit(run_job, jid, mode)
-        except Exception:
-            ACTIVE.discard(jid)
-            raise
-    return True
+        run_inline = job.get('execution_mode', 'async') == 'sync'
+        if not run_inline:
+            try:
+                POOL.submit(run_job, jid, mode)
+            except Exception as exc:
+                ACTIVE.discard(jid)
+                sql('UPDATE jobs SET status=?,phase=?,last_error=? WHERE id=?',
+                    ('failed', 'failed', str(exc)[:500], jid))
+                event(jid, 'error', f'Could not queue {mode}: {exc}')
+                raise HTTPException(503, 'Unable to queue migration worker') from exc
+    if run_inline:
+        run_job(jid, mode)
+        result = get_job(jid)
+        return {'accepted': True, 'queued': False, 'status': result['status'], 'error': result['last_error']}
+    return {'accepted': True, 'queued': True}
 
 def run_job(jid, mode):
     log_path = None
@@ -306,6 +361,52 @@ class JobIn(BaseModel):
     destination: str
     cron: str | None = None
     threads: int = Field(default=16, ge=1, le=32)
+    schedule_type: Literal['manual', 'once', 'daily', 'weekly', 'monthly', 'cron'] = 'manual'
+    scheduled_at: datetime | None = None
+    schedule_time: str | None = None
+    schedule_days: list[Literal['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']] = Field(default_factory=list)
+    schedule_day: int | None = Field(default=None, ge=1, le=31)
+    execution_mode: Literal['async', 'sync'] = 'async'
+
+    @field_validator('scheduled_at')
+    @classmethod
+    def normalize_scheduled_at(cls, value):
+        if value is None:
+            return value
+        local_tz = ZoneInfo(TZ)
+        value = value.replace(tzinfo=local_tz) if value.tzinfo is None else value.astimezone(local_tz)
+        if value <= datetime.now(local_tz):
+            raise ValueError('Scheduled date and time must be in the future')
+        return value
+
+    @field_validator('schedule_time')
+    @classmethod
+    def validate_schedule_time(cls, value):
+        if value is not None:
+            try:
+                datetime.strptime(value, '%H:%M')
+            except ValueError as exc:
+                raise ValueError('Schedule time must use HH:MM') from exc
+        return value
+
+    @model_validator(mode='after')
+    def validate_schedule(self):
+        if self.cron and self.schedule_type == 'manual':
+            self.schedule_type = 'cron'
+        if self.schedule_type == 'cron' and not self.cron:
+            raise ValueError('Cron schedule requires a cron expression')
+        if self.schedule_type == 'once' and not self.scheduled_at:
+            raise ValueError('One-time schedule requires a date and time')
+        if self.schedule_type in ('daily', 'weekly', 'monthly') and not self.schedule_time:
+            raise ValueError('Recurring schedule requires a time')
+        if self.schedule_type == 'weekly':
+            if not self.schedule_days:
+                raise ValueError('Weekly schedule requires at least one day')
+            if len(set(self.schedule_days)) != len(self.schedule_days):
+                raise ValueError('Weekly schedule days must be unique')
+        if self.schedule_type == 'monthly' and self.schedule_day is None:
+            raise ValueError('Monthly schedule requires a day of the month')
+        return self
 
 class Note(BaseModel):
     note: str = Field(min_length=12, max_length=1000)
@@ -587,7 +688,7 @@ def remove_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
 
 @app.get('/api/jobs', dependencies=[Depends(require_auth)])
 def jobs():
-    return sql('SELECT * FROM jobs ORDER BY id DESC')
+    return [decode_job(job) for job in sql('SELECT * FROM jobs ORDER BY id DESC')]
 
 @app.post('/api/jobs', dependencies=[Depends(require_auth), Depends(require_csrf)], status_code=201)
 def create_job(data: JobIn):
@@ -598,8 +699,15 @@ def create_job(data: JobIn):
                 CronTrigger.from_crontab(data.cron, timezone=TZ)
         except (engine.EngineError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
-        jid = sql('INSERT INTO jobs(name,source,destination,cron,threads,created) VALUES(?,?,?,?,?,?)',
-                  (data.name, src, dst, data.cron, data.threads, now()))
+        schedule_days = json.dumps(data.schedule_days) if data.schedule_days else None
+        cron = data.cron if data.schedule_type == 'cron' else None
+        jid = sql('''INSERT INTO jobs
+            (name,source,destination,cron,threads,schedule_type,scheduled_at,schedule_time,schedule_days,
+             schedule_day,execution_mode,created)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (data.name, src, dst, cron, data.threads, data.schedule_type,
+             data.scheduled_at.isoformat() if data.scheduled_at else None,
+             data.schedule_time, schedule_days, data.schedule_day, data.execution_mode, now()))
     schedule(get_job(jid))
     event(jid, 'info', 'Job created')
     return get_job(jid)
@@ -622,8 +730,7 @@ def runs(jid: int):
 def run(jid: int, mode: str):
     if mode not in ('dry-run', 'sync', 'final'):
         raise HTTPException(422, 'Unsupported mode')
-    submit(jid, mode)
-    return {'accepted': True, 'mode': mode}
+    return {**submit(jid, mode), 'mode': mode}
 
 @app.post('/api/jobs/{jid}/validate', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def validate(jid: int, data: Confirmation):

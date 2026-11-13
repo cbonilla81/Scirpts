@@ -38,7 +38,7 @@ All authenticated users can operate migration jobs; local administrator privileg
 
 ```text
 Browser (localhost) --> FastAPI + HTML console --> SQLite job/events/runs
-                          |                     --> APScheduler cron triggers
+                          |                     --> APScheduler date / recurring triggers
                           v
                  Windows Robocopy worker
                           |
@@ -53,7 +53,7 @@ The backend launches an argument list via `subprocess.Popen(shell=False)` and us
 
 ## Scheduling
 
-Jobs accept a five-field cron expression (minute hour day month weekday), e.g. `0 2 * * *` for daily 02:00 in `DATAMOVER_TZ`. APScheduler runs within the single API process; start only **one** Uvicorn worker. Scheduled sync is skipped when the job is already running, frozen, or handed off. The scheduler does not catch up missed executions after shutdown. Do not run multiple API replicas against the same SQLite file.
+New jobs can be scheduled manually, once at a selected date/time, daily, weekly on selected weekdays, or monthly on a selected day. Times use `DATAMOVER_TZ`; monthly days 29–31 are skipped in months that do not contain the selected day. Existing five-field cron schedules continue to work. Choose background (async, default) to return immediately or synchronous mode to wait for a manually started transfer to finish; long synchronous transfers can exceed browser or proxy timeouts. Scheduled jobs run from the single in-process APScheduler instance; start only **one** Uvicorn worker. Scheduled sync is skipped when the job is already running, frozen, or handed off. The scheduler does not catch up missed executions after shutdown; one-time runs more than two minutes late are skipped. Do not run multiple API replicas against the same SQLite file.
 
 ## Cutover
 
