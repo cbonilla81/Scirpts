@@ -15,10 +15,11 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from fastapi import FastAPI, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import create_engine, text
 
 BASE = Path(__file__).resolve().parent
@@ -60,6 +61,18 @@ with DB.begin() as c:
     for name, typ in [('dry_run_ok','INTEGER DEFAULT 0'),('dry_run_at','TEXT'),('final_verified','INTEGER DEFAULT 0'),('bytes_total','INTEGER DEFAULT 0'),('progress_pct','REAL DEFAULT 0'),('eta','TEXT')]:
         if name not in cols:
             c.execute(text(f'ALTER TABLE jobs ADD COLUMN {name} {typ}'))
+    schedule_columns = [
+        ('schedule_type', "TEXT NOT NULL DEFAULT 'manual'"),
+        ('scheduled_at', 'TEXT'),
+        ('schedule_time', 'TEXT'),
+        ('schedule_days', 'TEXT'),
+        ('schedule_day', 'INTEGER'),
+        ('execution_mode', "TEXT NOT NULL DEFAULT 'async'"),
+    ]
+    for name, typ in schedule_columns:
+        if name not in cols:
+            c.execute(text(f'ALTER TABLE jobs ADD COLUMN {name} {typ}'))
+    c.execute(text("UPDATE jobs SET schedule_type='cron' WHERE cron IS NOT NULL AND TRIM(cron)!='' AND schedule_type='manual'"))
 
 def now(): return datetime.now(timezone.utc).isoformat()
 
@@ -85,6 +98,12 @@ class JobIn(BaseModel):
     destination: str
     engine: Literal['rclone', 'robocopy'] = 'rclone'
     cron: str | None = None
+    schedule_type: Literal['manual', 'once', 'daily', 'weekly', 'monthly', 'cron'] = 'manual'
+    scheduled_at: datetime | None = None
+    schedule_time: str | None = None
+    schedule_days: list[Literal['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']] = Field(default_factory=list)
+    schedule_day: int | None = Field(default=None, ge=1, le=31)
+    execution_mode: Literal['async', 'sync'] = 'async'
     @field_validator('source', 'destination')
     @classmethod
     def validate_path(cls, v): return check_path(v)
@@ -96,6 +115,40 @@ class JobIn(BaseModel):
             if len(parts) != 5: raise ValueError('Cron must have 5 fields')
             CronTrigger.from_crontab(v, timezone=TZ)
         return v
+    @field_validator('scheduled_at')
+    @classmethod
+    def normalize_scheduled_at(cls, v):
+        if v is None: return v
+        local_tz = ZoneInfo(TZ)
+        v = v.replace(tzinfo=local_tz) if v.tzinfo is None else v.astimezone(local_tz)
+        if v <= datetime.now(local_tz):
+            raise ValueError('Scheduled date and time must be in the future')
+        return v
+    @field_validator('schedule_time')
+    @classmethod
+    def validate_schedule_time(cls, v):
+        if v is not None:
+            try: datetime.strptime(v, '%H:%M')
+            except ValueError as exc: raise ValueError('Schedule time must use HH:MM') from exc
+        return v
+    @model_validator(mode='after')
+    def validate_schedule(self):
+        if self.cron and self.schedule_type == 'manual':
+            self.schedule_type = 'cron'
+        if self.schedule_type == 'cron' and not self.cron:
+            raise ValueError('Cron schedule requires a cron expression')
+        if self.schedule_type == 'once' and not self.scheduled_at:
+            raise ValueError('One-time schedule requires a date and time')
+        if self.schedule_type in ('daily', 'weekly', 'monthly') and not self.schedule_time:
+            raise ValueError('Recurring schedule requires a time')
+        if self.schedule_type == 'weekly':
+            if not self.schedule_days:
+                raise ValueError('Weekly schedule requires at least one day')
+            if len(set(self.schedule_days)) != len(self.schedule_days):
+                raise ValueError('Weekly schedule days must be unique')
+        if self.schedule_type == 'monthly' and self.schedule_day is None:
+            raise ValueError('Monthly schedule requires a day of the month')
+        return self
 
 class Approval(BaseModel):
     note: str = Field(min_length=8, max_length=500)
@@ -116,11 +169,16 @@ def update(jid, **values):
     with DB.begin() as c:
         c.execute(text(f'UPDATE jobs SET {assignments} WHERE id=:id'), {**values, 'id':jid})
 
+def decode_job(row):
+    job = dict(row)
+    job['schedule_days'] = json.loads(job['schedule_days']) if job.get('schedule_days') else []
+    return job
+
 def get_job(jid):
     with DB.connect() as c:
         r = c.execute(text('SELECT * FROM jobs WHERE id=:id'), {'id':jid}).mappings().first()
     if not r: raise HTTPException(404, 'Job not found')
-    return dict(r)
+    return decode_job(r)
 
 def command_for(job, verify=False, dry_run=False):
     src, dst = check_path(job['source']), check_path(job['destination'])
@@ -140,13 +198,6 @@ def command_for(job, verify=False, dry_run=False):
     return ['robocopy', src, dst, '/E', '/COPYALL', '/DCOPY:DAT', '/ZB', '/R:3', '/W:5', '/XJ', '/MT:16', '/NP']
 
 def execute(jid, verify=False, final=False, dry_run=False):
-    if not semaphore.acquire(blocking=False):
-        record(jid, 'warning', 'Worker pool busy; retry manually or at next schedule')
-        return
-    with lock:
-        if jid in locks:
-            semaphore.release(); return
-        locks.add(jid)
     try:
         job = get_job(jid)
         phase = 'dry_run' if dry_run else ('final_validation' if verify and final else 'final_sync' if final else 'validation' if verify else 'sync')
@@ -204,9 +255,31 @@ def execute(jid, verify=False, final=False, dry_run=False):
 
 def launch(jid, verify=False, final=False, dry_run=False):
     with lock:
-        if jid in locks or get_job(jid)['status']=='running': raise HTTPException(409, 'Job already running')
-        update(jid, status='running', phase='queued')
-    threading.Thread(target=execute, args=(jid,verify,final,dry_run), daemon=True).start()
+        job = get_job(jid)
+        if jid in locks or job['status']=='running': raise HTTPException(409, 'Job already running')
+        if not semaphore.acquire(blocking=False):
+            raise HTTPException(503, 'All migration workers are busy')
+        locks.add(jid)
+        try:
+            update(jid, status='running', phase='queued')
+        except Exception:
+            locks.discard(jid)
+            semaphore.release()
+            raise
+    if job['execution_mode'] == 'sync':
+        execute(jid, verify, final, dry_run)
+        result = get_job(jid)
+        return {'queued':False,'status':result['status'],'error':result['last_error']}
+    try:
+        threading.Thread(target=execute, args=(jid,verify,final,dry_run), daemon=True).start()
+    except Exception as exc:
+        with lock:
+            locks.discard(jid)
+            semaphore.release()
+        update(jid, status='failed', phase='failed', last_error=str(exc), finished=now())
+        record(jid, 'error', f'Could not start worker: {exc}')
+        raise HTTPException(500, 'Could not start migration worker') from exc
+    return {'queued':True}
 
 def scheduled_run(jid):
     try:
@@ -218,8 +291,28 @@ def scheduled_run(jid):
 def schedule_job(job):
     sid=f'job-{job["id"]}'
     if scheduler.get_job(sid): scheduler.remove_job(sid)
-    if job['cron'] and not job['cutover_approved'] and not job['handoff_complete']:
-        scheduler.add_job(scheduled_run, CronTrigger.from_crontab(job['cron'], timezone=TZ), args=[job['id']], id=sid, replace_existing=True, max_instances=1, coalesce=True, misfire_grace_time=120)
+    if job['cutover_approved'] or job['handoff_complete']: return
+    schedule_type = job.get('schedule_type') or ('cron' if job.get('cron') else 'manual')
+    if schedule_type == 'cron' and job.get('cron'):
+        trigger = CronTrigger.from_crontab(job['cron'], timezone=TZ)
+    elif schedule_type == 'once' and job.get('scheduled_at'):
+        run_at = datetime.fromisoformat(job['scheduled_at'])
+        if run_at <= datetime.now(ZoneInfo(TZ)): return
+        trigger = DateTrigger(run_date=run_at)
+    elif schedule_type in ('daily', 'weekly', 'monthly') and job.get('schedule_time'):
+        hour, minute = map(int, job['schedule_time'].split(':'))
+        fields = {'hour':hour, 'minute':minute, 'timezone':TZ}
+        if schedule_type == 'weekly':
+            days = job.get('schedule_days') or []
+            if isinstance(days, str): days = json.loads(days)
+            fields['day_of_week'] = ','.join(days)
+        elif schedule_type == 'monthly':
+            fields['day'] = job['schedule_day']
+        trigger = CronTrigger(**fields)
+    else:
+        return
+    scheduler.add_job(scheduled_run, trigger, args=[job['id']], id=sid, replace_existing=True,
+                      max_instances=1, coalesce=True, misfire_grace_time=120)
 
 @app.on_event('startup')
 def startup():
@@ -244,14 +337,21 @@ app.mount('/static', StaticFiles(directory=BASE / 'static'), name='static')
 @app.get('/api/jobs', dependencies=[Depends(auth)])
 def jobs():
     with DB.connect() as c:
-        return [dict(x) for x in c.execute(text('SELECT * FROM jobs ORDER BY id DESC')).mappings()]
+        return [decode_job(x) for x in c.execute(text('SELECT * FROM jobs ORDER BY id DESC')).mappings()]
 
 @app.post('/api/jobs', dependencies=[Depends(auth)])
 def create(data: JobIn):
     if data.source.casefold().rstrip('/\\') == data.destination.casefold().rstrip('/\\'):
         raise HTTPException(400, 'Source and destination cannot match')
+    schedule_days = json.dumps(data.schedule_days) if data.schedule_days else None
+    cron = data.cron if data.schedule_type == 'cron' else None
     with DB.begin() as c:
-        result=c.execute(text('INSERT INTO jobs(name,source,destination,engine,cron,created) VALUES(:n,:s,:d,:e,:c,:t)'), dict(n=data.name,s=data.source,d=data.destination,e=data.engine,c=data.cron,t=now()))
+        result=c.execute(text('''INSERT INTO jobs
+            (name,source,destination,engine,cron,schedule_type,scheduled_at,schedule_time,schedule_days,schedule_day,execution_mode,created)
+            VALUES(:n,:s,:d,:e,:c,:st,:sa,:tm,:sd,:day,:mode,:t)'''),
+            dict(n=data.name,s=data.source,d=data.destination,e=data.engine,c=cron,st=data.schedule_type,
+                 sa=data.scheduled_at.isoformat() if data.scheduled_at else None,tm=data.schedule_time,
+                 sd=schedule_days,day=data.schedule_day,mode=data.execution_mode,t=now()))
         jid=result.lastrowid
     schedule_job(get_job(jid))
     record(jid,'info','Job created')
@@ -271,8 +371,8 @@ def dry_run(jid:int):
     j=get_job(jid)
     if j['cutover_approved'] or j['handoff_complete']:
         raise HTTPException(409,'Dry run unavailable after cutover approval')
-    launch(jid,dry_run=True)
-    return {'queued':True,'mode':'non-mutating engine simulation'}
+    result=launch(jid,dry_run=True)
+    return {**result,'mode':'non-mutating engine simulation'}
 
 @app.get('/api/jobs/{jid}/rollback-plan', dependencies=[Depends(auth)])
 def rollback_plan(jid:int):
@@ -290,13 +390,13 @@ def rollback_plan(jid:int):
 def sync(jid:int):
     j=get_job(jid)
     if j['cutover_approved'] or j['handoff_complete']: raise HTTPException(409,'Cutover in progress or complete')
-    launch(jid); return {'queued':True}
+    return launch(jid)
 
 @app.post('/api/jobs/{jid}/validate', dependencies=[Depends(auth)])
 def validate(jid:int):
     j=get_job(jid)
     if j['handoff_complete'] or j['cutover_approved']: raise HTTPException(409,'Validation unavailable after cutover approval')
-    launch(jid,verify=True); return {'queued':True}
+    return launch(jid,verify=True)
 
 @app.post('/api/jobs/{jid}/approve', dependencies=[Depends(auth)])
 def approve(jid:int, data:Approval):
@@ -314,15 +414,14 @@ def final_sync(jid:int):
     j=get_job(jid)
     if not j['cutover_approved'] or not j['source_frozen'] or j['handoff_complete']:
         raise HTTPException(409,'Requires cutover approval and frozen source')
-    launch(jid,final=True); return {'queued':True}
+    return launch(jid,final=True)
 
 @app.post('/api/jobs/{jid}/final-validate', dependencies=[Depends(auth)])
 def final_validate(jid:int):
     j=get_job(jid)
     if not j['cutover_approved'] or j['phase']!='final_complete' or j['status']!='ready':
         raise HTTPException(409,'Successful final sync required before final verification')
-    launch(jid,verify=True,final=True)
-    return {'queued':True}
+    return launch(jid,verify=True,final=True)
 
 @app.post('/api/jobs/{jid}/handoff', dependencies=[Depends(auth)])
 def handoff(jid:int, data:Handoff):

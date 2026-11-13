@@ -21,12 +21,12 @@ Docker Compose on Linux is a reasonable starting point for a controlled pilot or
 - `rclone copy` transfers supported local, SFTP, SMB-mounted, S3, Azure Blob, and other configured rclone remotes without deleting destination-only files.
 - `rclone check --one-way` compares source objects against destination (size/hash where backend supports it); this is not a universal bit-for-bit proof and cloud backends may lack matching hashes.
 - Windows `robocopy /E /COPYALL /DCOPY:DAT /ZB /MT:16` supports NTFS metadata on compatible Windows SMB paths when the worker identity has necessary rights.
-- APScheduler cron jobs, SQLite event history, run/validate/approve/final-sync/handoff APIs.
+- Manual, one-time, daily, weekly, and monthly schedules; legacy cron schedules remain supported. SQLite event history and run/validate/approve/final-sync/handoff APIs are included.
 - Browser dashboard refreshes every 10 seconds; worker events expose rclone stats and errors. v1 does **not** compute an accurate percentage or ETA; file/byte counters are reserved for future releases.
 - Cutover approval requires successful validation and operator attestation that the source is write-frozen. Final sync is non-deleting; handoff is an operator-confirmed external step.
 
 ## Important limits for production
-This is a functional v1 foundation, **not a certified production migration appliance**. Before moving 10–100 TB, test on representative data and ACLs, validate storage provider semantics, create backups, and test recovery. Single-process SQLite and in-process threads are not HA; unexpected process termination interrupts transfers. The worker does not resume a partial command automatically, but subsequent rclone copy runs re-evaluate the delta. Jobs cannot be paused or cancelled from the UI. Cron schedules are in `DATAMOVER_TZ`. Robocopy verification via `/L` checks differences in its listing, not cryptographic integrity. No automatic source freeze, DFS/DNS switch, rollback, alerting, RBAC, SSO, or tamper-evident audit log.
+This is a functional v1 foundation, **not a certified production migration appliance**. Before moving 10–100 TB, test on representative data and ACLs, validate storage provider semantics, create backups, and test recovery. Single-process SQLite and in-process threads are not HA; unexpected process termination interrupts transfers. The worker does not resume a partial command automatically, but subsequent rclone copy runs re-evaluate the delta. Jobs cannot be paused or cancelled from the UI. One-time and recurring schedules use `DATAMOVER_TZ`; one-time runs missed by more than the scheduler's two-minute grace period are skipped. Monthly schedules for days 29–31 skip months without that day. Synchronous actions keep the request open until the transfer finishes and may exceed browser or proxy timeouts; background execution is recommended for long migrations. Robocopy verification via `/L` checks differences in its listing, not cryptographic integrity. No automatic source freeze, DFS/DNS switch, rollback, alerting, RBAC, SSO, or tamper-evident audit log.
 
 **Security:** The API key is a single shared operator credential, not RBAC. The dashboard holds it only in JavaScript memory; protect the UI with HTTPS via an authenticated reverse proxy/VPN and do not expose the API directly to the Internet. Secrets for cloud storage should be injected via protected rclone config/environment/managed identities, never embedded in job paths. Limit allowed roots and IAM to least privilege. No delete operation is offered. Do not expose the local SQLite state or log files to untrusted users. Consider separate worker identities and isolated controllers for tenants.
 
@@ -67,8 +67,10 @@ All `/api/*` routes require `X-API-Key` except `/` and static assets. `GET /api/
 
 Example job JSON:
 ```json
-{"name":"Azure finance migration","source":"onprem:finance","destination":"azure:my-container/finance","engine":"rclone","cron":"0 */4 * * *"}
+{"name":"Azure finance migration","source":"onprem:finance","destination":"azure:my-container/finance","engine":"rclone","schedule_type":"daily","schedule_time":"02:00","execution_mode":"async"}
 ```
+
+`schedule_type` can be `manual`, `once`, `daily`, `weekly`, or `monthly`. One-time jobs use an ISO `scheduled_at` value; recurring jobs use `schedule_time`, weekly jobs also use `schedule_days` (for example `["mon","fri"]`), and monthly jobs use `schedule_day` (1–31). Schedule times are interpreted in `DATAMOVER_TZ`. Set `execution_mode` to `sync` to keep a manual action request open until the transfer finishes, or `async` to return immediately and run in the background. Existing `cron` job definitions continue to work.
 
 ## Testing
 ```bash

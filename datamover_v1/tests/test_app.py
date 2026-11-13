@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,8 +26,32 @@ class Tests(unittest.TestCase):
         r=self.client.post('/api/jobs',headers=self.h,json={'name':'test','source':'/srv/source','destination':'/srv/dest','engine':'rclone','cron':'0 2 * * *'})
         self.assertEqual(r.status_code,200,r.text)
         jid=r.json()['id']
+        self.assertEqual(r.json()['schedule_type'],'cron')
         self.assertEqual(self.client.post(f'/api/jobs/{jid}/approve',headers=self.h,json={'note':'change ticket 123','source_frozen':True,'confirm':'APPROVE FINAL SYNC'}).status_code,409)
         self.assertEqual(self.client.post(f'/api/jobs/{jid}/final-sync',headers=self.h).status_code,409)
+    def test_schedule_options_persist(self):
+        weekly=self.client.post('/api/jobs',headers=self.h,json={
+            'name':'weekly test','source':'/srv/source','destination':'/srv/dest',
+            'schedule_type':'weekly','schedule_time':'02:30','schedule_days':['mon','fri'],
+            'execution_mode':'sync'
+        })
+        self.assertEqual(weekly.status_code,200,weekly.text)
+        self.assertEqual(weekly.json()['schedule_days'],['mon','fri'])
+        self.assertEqual(weekly.json()['execution_mode'],'sync')
+
+        one_time=self.client.post('/api/jobs',headers=self.h,json={
+            'name':'one-time test','source':'/srv/source','destination':'/srv/dest',
+            'schedule_type':'once',
+            'scheduled_at':(datetime.now(timezone.utc)+timedelta(days=1)).isoformat()
+        })
+        self.assertEqual(one_time.status_code,200,one_time.text)
+        self.assertTrue(one_time.json()['scheduled_at'])
+    def test_schedule_options_require_matching_fields(self):
+        response=self.client.post('/api/jobs',headers=self.h,json={
+            'name':'invalid weekly test','source':'/srv/source','destination':'/srv/dest',
+            'schedule_type':'weekly','schedule_time':'02:30'
+        })
+        self.assertEqual(response.status_code,422)
     def test_no_delete(self):
         cmd=command_for({'engine':'rclone','source':'/srv/source','destination':'/srv/dest'})
         self.assertEqual(cmd[1],'copy')
