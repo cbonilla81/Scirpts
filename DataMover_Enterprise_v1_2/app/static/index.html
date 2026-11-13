@@ -124,6 +124,7 @@
     .route { max-width: 245px; overflow: hidden; color: #64758a; text-overflow: ellipsis; white-space: nowrap; }
     .status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 20px; font-size: 9px; font-weight: 650; white-space: nowrap; }
     .status::before { width: 5px; height: 5px; border-radius: 50%; background: currentColor; content: ""; }
+    .status.queued { color: #8a5b0a; background: #fff3d4; }
     .status.running { color: #286fc0; background: #edf5ff; }
     .status.success, .status.ready { color: #147852; background: #eaf7f0; }
     .status.idle { color: #9a6a0a; background: #fff6df; }
@@ -401,7 +402,7 @@
               <div class="panel-heading">
                 <div><h2>Migration jobs</h2><div class="panel-sub">Monitor runs and inspect each migration at a glance.</div></div>
                 <select class="select" id="jobFilter" aria-label="Filter jobs">
-                  <option value="all">All jobs</option><option value="running">Running</option><option value="idle">Idle</option><option value="success">Succeeded</option><option value="failed">Failed</option><option value="handed-off">Handed off</option>
+                  <option value="all">All jobs</option><option value="queued">Queued</option><option value="running">Running</option><option value="idle">Idle</option><option value="success">Succeeded</option><option value="failed">Failed</option><option value="handed-off">Handed off</option>
                 </select>
               </div>
               <div class="jobs-wrap">
@@ -483,12 +484,13 @@
       <div class="field"><label for="jobName">Job name</label><input id="jobName" name="name" required minlength="3" maxlength="100" placeholder="Finance share migration"></div>
       <div class="field"><label for="jobSource">Source UNC path</label><input id="jobSource" name="source" required placeholder="\\FS01\Shares\Finance"></div>
       <div class="field"><label for="jobDestination">Destination UNC path</label><input id="jobDestination" name="destination" required placeholder="\\FS02\Shares\Finance"></div>
-      <div class="field"><label for="scheduleType">Schedule</label><select id="scheduleType" name="schedule_type"><option value="manual">Manual / on demand</option><option value="once">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+      <div class="field"><label for="scheduleType">Replication schedule</label><select id="scheduleType" name="schedule_type"><option value="manual">Manual / on demand</option><option value="once">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="continuous">Continuous · watch for changes</option></select></div>
+      <div class="field" id="continuousScheduleNote" hidden><small>Uses the separate Windows replication worker. Source changes are copied after a short debounce, with periodic reconciliation. Source deletions are not propagated; source content overwrites destination edits.</small></div>
       <div class="field" id="oneTimeSchedule" hidden><label for="scheduledAt">Run date and time (server time zone)</label><input id="scheduledAt" name="scheduled_at" type="datetime-local"></div>
       <div class="field" id="recurringSchedule" hidden><label for="scheduleTime">Run time (server time zone)</label><input id="scheduleTime" name="schedule_time" type="time"></div>
       <div class="field" id="weeklySchedule" hidden><label>Days of the week</label><div class="weekday-options"><label><input type="checkbox" name="schedule_days" value="mon"> Mon</label><label><input type="checkbox" name="schedule_days" value="tue"> Tue</label><label><input type="checkbox" name="schedule_days" value="wed"> Wed</label><label><input type="checkbox" name="schedule_days" value="thu"> Thu</label><label><input type="checkbox" name="schedule_days" value="fri"> Fri</label><label><input type="checkbox" name="schedule_days" value="sat"> Sat</label><label><input type="checkbox" name="schedule_days" value="sun"> Sun</label></div></div>
       <div class="field" id="monthlySchedule" hidden><label for="scheduleDay">Day of the month</label><select id="scheduleDay" name="schedule_day"><option value="">Select a day</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option><option>16</option><option>17</option><option>18</option><option>19</option><option>20</option><option>21</option><option>22</option><option>23</option><option>24</option><option>25</option><option>26</option><option>27</option><option>28</option><option>29</option><option>30</option><option>31</option></select><small>Months without the selected day will be skipped.</small></div>
-      <div class="field"><label for="executionMode">Run mode</label><select id="executionMode" name="execution_mode"><option value="async">Asynchronous (run in background)</option><option value="sync">Synchronous (wait for completion)</option></select><small>Long synchronous runs may exceed browser or proxy timeouts.</small></div>
+      <div class="field"><label for="executionMode">Manual run response</label><select id="executionMode" name="execution_mode"><option value="async">Queue in background (return immediately)</option><option value="sync">Wait for completion</option></select><small>This controls how a manual request responds; it does not continuously replicate file changes.</small></div>
       <div class="field"><label for="jobThreads">Robocopy threads (1–32)</label><input id="jobThreads" name="threads" type="number" min="1" max="32" value="16" required></div>
       <div class="modal-note">Jobs can only use paths under approved roots. Add or remove roots with Manage approved roots. Schedule times use the server's configured DATAMOVER_TZ time zone.</div>
       <div class="modal-actions"><button class="button" type="button" id="cancelModal">Cancel</button><button class="button primary" type="submit">Create job</button></div>
@@ -539,9 +541,13 @@
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     })[char]);
     const statusLabels = {
-      idle: 'Idle', running: 'Running', success: 'Succeeded', failed: 'Failed', 'handed-off': 'Handed off'
+      idle: 'Idle', queued: 'Queued', running: 'Running', success: 'Succeeded', failed: 'Failed', 'handed-off': 'Handed off'
     };
     function scheduleLabel(job) {
+      if (job.schedule_type === 'continuous') {
+        return demoMode ? 'Continuous · simulated' :
+          job.continuous_ready ? 'Continuous · change watcher' : 'Continuous · waiting for Dry-Run';
+      }
       if (job.schedule_type === 'once') return `Once · ${String(job.scheduled_at || '').replace('T', ' ')}`;
       if (job.schedule_type === 'daily') return `Daily at ${job.schedule_time}`;
       if (job.schedule_type === 'weekly') return `Weekly · ${(job.schedule_days || []).join(', ')} at ${job.schedule_time}`;
@@ -549,7 +555,7 @@
       if (job.schedule_type === 'cron' || job.cron) return `Cron · ${job.cron}`;
       return 'Manual';
     }
-    const executionModeLabel = job => job.execution_mode === 'sync' ? 'Synchronous' : 'Background (async)';
+    const executionModeLabel = job => job.execution_mode === 'sync' ? 'Wait for completion' : 'Background (returns immediately)';
     const demoMode = window.location.pathname === '/demo' ||
       new URLSearchParams(window.location.search).get('demo') === '1';
     const demoUsers = [];
@@ -559,13 +565,13 @@
       { path: '\\\\files.example.com\\Departments', created: new Date().toISOString(), created_by: 'demo setup' }
     ];
     const demoJobs = [
-      { id: 1, name: 'Finance share migration', source: '\\\\FS01\\Shares\\Finance', destination: '\\\\FS02\\Shares\\Finance', status: 'running', phase: 'sync', last_exit: 0, last_started: new Date().toISOString(), last_finished: null, dry_run_ok: 1, validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: '0 2 * * *' },
+      { id: 1, name: 'Finance share migration', source: '\\\\FS01\\Shares\\Finance', destination: '\\\\FS02\\Shares\\Finance', status: 'success', phase: 'sync', last_exit: 0, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: '0 2 * * *' },
       { id: 2, name: 'Marketing archive', source: '\\\\FS01\\Departments\\Marketing', destination: '\\\\FS02\\Departments\\Marketing', status: 'success', phase: 'dry-run', last_exit: 1, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 1, frozen: 0, approved: 0, final_verified: 0, handoff: 0, created: new Date().toISOString(), threads: 16, cron: null },
       { id: 3, name: 'Engineering workspaces', source: '\\\\FS03\\Teams\\Engineering', destination: '\\\\FS04\\Teams\\Engineering', status: 'handed-off', phase: 'final', last_exit: 0, last_started: new Date().toISOString(), last_finished: new Date().toISOString(), dry_run_ok: 1, validated: 1, frozen: 1, approved: 1, final_verified: 1, handoff: 1, created: new Date().toISOString(), threads: 16, cron: null }
     ];
-    const demoRuns = [{ id: 1, job_id: 1, mode: 'sync', started: new Date().toISOString(), status: 'running', exit_code: null, log_file: 'Demo simulation', summary: 'Sample run; no worker was started.' }];
+    const demoRuns = [{ id: 1, job_id: 1, mode: 'sync', started: new Date().toISOString(), status: 'success', exit_code: 0, log_file: 'Demo simulation', summary: 'Sample run completed; no worker was started.' }];
     const demoEvents = [
-      { job_id: 1, ts: new Date().toISOString(), level: 'info', message: 'Sample incremental sync is in progress.' },
+      { job_id: 1, ts: new Date().toISOString(), level: 'info', message: 'Sample incremental sync completed; cutover workflow can continue.' },
       { job_id: 2, ts: new Date().toISOString(), level: 'warning', message: 'Sample validation was attested by an operator.' },
       { job_id: 3, ts: new Date().toISOString(), level: 'info', message: 'Sample cutover handoff was completed.' }
     ];
@@ -623,7 +629,7 @@
       }
 
       requireDemoUser();
-      if (path === '/health' && method === 'GET') return { service: 'ok', engine: 'Robocopy simulation', platform: 'demo', jobs_running: demoJobs.filter(job => job.status === 'running').length };
+      if (path === '/health' && method === 'GET') return { service: 'ok', engine: 'Robocopy simulation', platform: 'demo', jobs_running: demoJobs.filter(job => job.status === 'running').length, replication_worker_online: false };
       if (path === '/roots' && method === 'GET') return demoRoots.map(root => ({ ...root }));
       if (path === '/roots' && method === 'POST') {
         const root = String(body.path || '').trim();
@@ -646,7 +652,7 @@
           id: Math.max(0, ...demoJobs.map(item => item.id)) + 1,
           name: body.name, source: body.source, destination: body.destination, status: 'idle',
           phase: 'created', last_exit: null, last_started: null, last_finished: null,
-          dry_run_ok: 0, validated: 0, frozen: 0, approved: 0, final_verified: 0,
+          dry_run_ok: 0, validated: 0, continuous_ready: 0, frozen: 0, approved: 0, final_verified: 0,
           handoff: 0, created: new Date().toISOString(), threads: body.threads, cron: body.cron || null,
           schedule_type: body.schedule_type || 'manual', scheduled_at: body.scheduled_at || null,
           schedule_time: body.schedule_time || null, schedule_days: body.schedule_days || [],
@@ -679,7 +685,11 @@
         job.last_exit = mode === 'dry-run' ? 1 : 0;
         job.last_started = now;
         job.last_finished = now;
-        if (mode === 'dry-run') job.dry_run_ok = 1;
+        if (mode === 'dry-run') {
+          job.dry_run_ok = 1;
+          job.validated = job.frozen = job.approved = job.final_verified = 0;
+          if (job.schedule_type === 'continuous') job.continuous_ready = 1;
+        }
         if (mode === 'sync') Object.assign(job, { dry_run_ok: 0, validated: 0, frozen: 0, approved: 0, final_verified: 0 });
         if (mode === 'final') job.final_verified = 0;
         demoRuns.unshift({ id: demoRuns.length + 1, job_id: job.id, mode, started: now, status: 'success', exit_code: job.last_exit, log_file: 'Demo simulation', summary: 'Sample run only; no worker was started.' });
@@ -778,7 +788,7 @@
       $('profileAvatar').textContent = (currentUser?.username || 'OP').slice(0, 2).toUpperCase();
     }
     function statusClass(status) {
-      return ['idle', 'running', 'success', 'failed', 'handed-off'].includes(status) ? status : 'idle';
+      return ['idle', 'queued', 'running', 'success', 'failed', 'handed-off'].includes(status) ? status : 'idle';
     }
     function formatTime(value) {
       if (!value) return '—';
@@ -842,7 +852,7 @@
       let firstIncomplete = stages.findIndex(done => !done);
       if (firstIncomplete < 0) firstIncomplete = -1;
       stages.forEach((complete, index) => gateStep(index, complete, index === firstIncomplete));
-      const busy = job.status === 'running';
+      const busy = job.status === 'running' || job.status === 'queued';
       const handedOff = Boolean(job.handoff);
       $('dryRunButton').disabled = busy || handedOff;
       $('syncButton').disabled = busy || handedOff || Boolean(job.frozen);
@@ -874,7 +884,7 @@
         </div>
         <div class="meta-row"><span>Engine</span><strong>Robocopy · ${Number(job.threads || 16)} threads</strong></div>
         <div class="meta-row"><span>Schedule</span><strong>${escapeHtml(scheduleLabel(job))}</strong></div>
-        <div class="meta-row"><span>Run mode</span><strong>${escapeHtml(executionModeLabel(job))}</strong></div>
+        <div class="meta-row"><span>Manual run response</span><strong>${escapeHtml(executionModeLabel(job))}</strong></div>
         <div class="meta-row"><span>Last run result</span><strong>${escapeHtml(job.last_exit === null ? 'No run recorded' : `Exit ${job.last_exit}`)}</strong></div>
         <div class="meta-row"><span>Data progress</span><strong>Not reported by this pilot</strong></div>`;
       renderCutover(job);
@@ -918,7 +928,16 @@
         $('validatedJobs').textContent = String(jobs.filter(job => job.validated && !job.handoff).length).padStart(2, '0');
         $('completeJobs').textContent = String(jobs.filter(job => job.handoff).length).padStart(2, '0');
         $('totalJobs').textContent = String(jobs.length).padStart(2, '0');
-        $('controllerMeta').textContent = `Engine: ${health.engine}`;
+        const needsWorker = jobs.some(job =>
+          job.status === 'queued' || (job.schedule_type === 'continuous' && !job.handoff && !job.frozen)
+        );
+        const workerState = demoMode ? 'simulated' : health.replication_worker_online ? 'online' : 'offline';
+        $('controllerMeta').textContent = `Engine: ${health.engine}${needsWorker ? ` · Replication worker ${workerState}` : ''}`;
+        if (needsWorker && !health.replication_worker_online && !demoMode) {
+          showNotice('The replication worker is offline. Queued and continuous jobs will wait until its Windows service is running.', true);
+        } else if ($('notice').textContent.startsWith('The replication worker is offline.')) {
+          clearDetailMessage();
+        }
         if (!jobs.some(job => job.id === selectedId)) selectedId = jobs.length ? jobs[0].id : null;
         renderJobs();
         if (selectedId !== null) {
@@ -1217,13 +1236,20 @@
       const type = $('scheduleType').value;
       const oneTime = type === 'once';
       const recurring = ['daily', 'weekly', 'monthly'].includes(type);
+      const continuous = type === 'continuous';
       $('oneTimeSchedule').hidden = !oneTime;
       $('recurringSchedule').hidden = !recurring;
       $('weeklySchedule').hidden = type !== 'weekly';
       $('monthlySchedule').hidden = type !== 'monthly';
+      $('continuousScheduleNote').hidden = !continuous;
       $('scheduledAt').required = oneTime;
       $('scheduleTime').required = recurring;
       $('scheduleDay').required = type === 'monthly';
+      $('executionMode').disabled = continuous;
+      if (continuous) $('executionMode').value = 'async';
+      $('continuousScheduleNote').textContent = demoMode
+        ? 'Demo only: no files are watched or copied. Continuous mode requires the Windows replication worker in a live installation.'
+        : 'Uses the separate Windows replication worker. Source changes are copied after a short debounce, with periodic reconciliation. Source deletions are not propagated; source content overwrites destination edits.';
     }
     $('scheduleType').addEventListener('change', updateScheduleFields);
     updateScheduleFields();

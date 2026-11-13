@@ -8,6 +8,7 @@ import secrets
 import sqlite3
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -104,6 +105,16 @@ def sql(query, params=(), *, one=False):
 def event(job_id, level, message):
     sql('INSERT INTO events(job_id,ts,level,message) VALUES(?,?,?,?)', (job_id, now(), level, str(message)[:1800]))
 
+def replication_worker_online():
+    heartbeat = sql(
+        'SELECT updated FROM worker_heartbeats WHERE name=?',
+        ('replication',), one=True,
+    )
+    if not heartbeat:
+        return False
+    updated = datetime.fromisoformat(heartbeat['updated'])
+    return (datetime.now(timezone.utc) - updated).total_seconds() <= 15
+
 def init_db():
     with connect() as db:
         db.executescript('''CREATE TABLE IF NOT EXISTS jobs (
@@ -113,12 +124,13 @@ def init_db():
         schedule_days TEXT, schedule_day INTEGER, execution_mode TEXT NOT NULL DEFAULT 'async',
         phase TEXT NOT NULL DEFAULT 'created', last_exit INTEGER, last_started TEXT, last_finished TEXT,
         dry_run_ok INTEGER NOT NULL DEFAULT 0, validated INTEGER NOT NULL DEFAULT 0,
-        frozen INTEGER NOT NULL DEFAULT 0, approved INTEGER NOT NULL DEFAULT 0,
+        continuous_ready INTEGER NOT NULL DEFAULT 0, frozen INTEGER NOT NULL DEFAULT 0, approved INTEGER NOT NULL DEFAULT 0,
         final_verified INTEGER NOT NULL DEFAULT 0, handoff INTEGER NOT NULL DEFAULT 0,
         last_error TEXT, created TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, job_id INTEGER, ts TEXT, level TEXT, message TEXT);
         CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, job_id INTEGER, mode TEXT, started TEXT,
         finished TEXT, status TEXT, exit_code INTEGER, log_file TEXT, summary TEXT);
+        CREATE TABLE IF NOT EXISTS worker_heartbeats (name TEXT PRIMARY KEY, updated TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE,
         password_hash TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
@@ -134,6 +146,7 @@ def init_db():
             ('schedule_days', 'TEXT'),
             ('schedule_day', 'INTEGER'),
             ('execution_mode', "TEXT NOT NULL DEFAULT 'async'"),
+            ('continuous_ready', 'INTEGER NOT NULL DEFAULT 0'),
         ):
             if name not in columns:
                 db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
@@ -168,6 +181,8 @@ def schedule(job):
     if job['handoff']:
         return
     schedule_type = job.get('schedule_type') or ('cron' if job.get('cron') else 'manual')
+    if schedule_type == 'continuous':
+        return
     if schedule_type == 'cron' and job.get('cron'):
         trigger = CronTrigger.from_crontab(job['cron'], timezone=TZ)
     elif schedule_type == 'once' and job.get('scheduled_at'):
@@ -197,10 +212,9 @@ def invalidate(jid):
     sql('UPDATE jobs SET dry_run_ok=0, validated=0, frozen=0, approved=0, final_verified=0 WHERE id=?', (jid,))
 
 def submit(jid, mode, scheduled=False):
-    run_inline = False
     with LOCK:
         job = get_job(jid)
-        if jid in ACTIVE:
+        if jid in ACTIVE or job['status'] in ('queued', 'running'):
             if scheduled:
                 event(jid, 'warning', 'Scheduled run skipped: job already running')
                 return False
@@ -218,36 +232,88 @@ def submit(jid, mode, scheduled=False):
             raise HTTPException(409, 'Final sync requires dry run, validation, freeze confirmation and approval')
         if mode == 'sync' and job['frozen']:
             raise HTTPException(409, 'Source is marked frozen; use final sync')
-        ACTIVE.add(jid)
-        sql('UPDATE jobs SET status=?,phase=?,last_started=?,last_error=NULL WHERE id=?',
-            ('running', mode, now(), jid))
-        run_inline = job.get('execution_mode', 'async') == 'sync'
-        if not run_inline:
-            try:
-                POOL.submit(run_job, jid, mode)
-            except Exception as exc:
-                ACTIVE.discard(jid)
-                sql('UPDATE jobs SET status=?,phase=?,last_error=? WHERE id=?',
-                    ('failed', 'failed', str(exc)[:500], jid))
-                event(jid, 'error', f'Could not queue {mode}: {exc}')
-                raise HTTPException(503, 'Unable to queue migration worker') from exc
-    if run_inline:
-        run_job(jid, mode)
-        result = get_job(jid)
-        return {'accepted': True, 'queued': False, 'status': result['status'], 'error': result['last_error']}
-    return {'accepted': True, 'queued': True}
+        if mode == 'sync' and job['schedule_type'] == 'continuous' and not job['continuous_ready']:
+            raise HTTPException(409, 'Run a successful Dry-Run before enabling continuous replication')
+        if job.get('execution_mode', 'async') == 'sync' and not scheduled and not replication_worker_online():
+            raise HTTPException(503, 'Replication worker is offline; start its Windows service before waiting for a run')
+        with connect() as db:
+            cursor = db.execute(
+                'UPDATE jobs SET status=?,phase=?,last_error=NULL WHERE id=? AND status NOT IN (?,?)',
+                ('queued', mode, jid, 'queued', 'running'),
+            )
+            run_id = None
+            if cursor.rowcount == 1:
+                run_id = db.execute(
+                    'INSERT INTO runs(job_id,mode,started,status,summary) VALUES(?,?,?,?,?)',
+                    (jid, mode, now(), 'queued', 'Waiting for the replication worker'),
+                ).lastrowid
+            db.commit()
+        if run_id is None:
+            if scheduled:
+                event(jid, 'warning', 'Scheduled run skipped: job already running')
+                return False
+            raise HTTPException(409, 'Job already queued or running')
+    event(jid, 'info', f'{mode} queued for the replication worker (run #{run_id})')
+    if job.get('execution_mode', 'async') == 'sync' and not scheduled:
+        return wait_for_run(jid, run_id)
+    return {'accepted': True, 'queued': True, 'run_id': run_id}
 
-def run_job(jid, mode):
+def wait_for_run(jid, run_id):
+    while True:
+        run = sql('SELECT status FROM runs WHERE id=? AND job_id=?', (run_id, jid), one=True)
+        if not run:
+            raise HTTPException(500, 'Queued run record disappeared')
+        if run['status'] in ('success', 'failed'):
+            job = get_job(jid)
+            return {
+                'accepted': True, 'queued': False, 'status': run['status'],
+                'error': job['last_error'], 'run_id': run_id,
+            }
+        time.sleep(0.5)
+
+def claim_next_run():
+    with LOCK, connect() as db:
+        row = db.execute(
+            "SELECT id,job_id,mode FROM runs WHERE status='queued' ORDER BY id LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        run_id, jid, mode = row
+        started = now()
+        cursor = db.execute(
+            "UPDATE runs SET status='running',started=?,summary=NULL WHERE id=? AND status='queued'",
+            (started, run_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        cursor = db.execute(
+            "UPDATE jobs SET status='running',phase=?,last_started=?,last_error=NULL "
+            "WHERE id=? AND status='queued'",
+            (mode, started, jid),
+        )
+        if cursor.rowcount != 1:
+            db.execute(
+                "UPDATE runs SET status='failed',finished=?,summary=? WHERE id=?",
+                (now(), 'Job was not queued when the worker claimed the run', run_id),
+            )
+            db.commit()
+            return None
+        db.commit()
+        ACTIVE.add(jid)
+        return {'id': run_id, 'job_id': jid, 'mode': mode}
+
+def run_job(jid, mode, run_id):
     log_path = None
-    run_id = None
     try:
         job = get_job(jid)
+        if mode == 'sync':
+            invalidate(jid)
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
         log_path = STATE / 'logs' / f'job-{jid}-{mode}-{stamp}.log'
         args = engine.command(job['source'], job['destination'], dry_run=(mode == 'dry-run'),
-                              final=(mode == 'final'), threads=job['threads'], log_path=log_path)
-        run_id = sql('INSERT INTO runs(job_id,mode,started,status,log_file) VALUES(?,?,?,?,?)',
-                     (jid, mode, now(), 'running', str(log_path)))
+                              final=(mode == 'final'), source_wins=(job['schedule_type'] == 'continuous'),
+                              threads=job['threads'], log_path=log_path)
+        sql('UPDATE runs SET log_file=? WHERE id=?', (str(log_path), run_id))
         event(jid, 'info', f'{mode} started (run #{run_id})')
         # No shell, no user-controlled switches. Output goes to a bounded in-memory tail.
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -269,9 +335,12 @@ def run_job(jid, mode):
             (status, mode, code, now(), None if ok else f'Robocopy exit code {code}', jid))
         if ok:
             if mode == 'dry-run':
-                sql('UPDATE jobs SET dry_run_ok=1 WHERE id=?', (jid,))
-            elif mode == 'sync':
-                invalidate(jid)
+                sql(
+                    '''UPDATE jobs SET dry_run_ok=1,validated=0,frozen=0,approved=0,final_verified=0,
+                       continuous_ready=CASE WHEN schedule_type='continuous' THEN 1 ELSE continuous_ready END
+                       WHERE id=?''',
+                    (jid,),
+                )
             elif mode == 'final':
                 sql('UPDATE jobs SET final_verified=0 WHERE id=?', (jid,))
         else:
@@ -361,7 +430,7 @@ class JobIn(BaseModel):
     destination: str
     cron: str | None = None
     threads: int = Field(default=16, ge=1, le=32)
-    schedule_type: Literal['manual', 'once', 'daily', 'weekly', 'monthly', 'cron'] = 'manual'
+    schedule_type: Literal['manual', 'once', 'daily', 'weekly', 'monthly', 'cron', 'continuous'] = 'manual'
     scheduled_at: datetime | None = None
     schedule_time: str | None = None
     schedule_days: list[Literal['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']] = Field(default_factory=list)
@@ -406,6 +475,8 @@ class JobIn(BaseModel):
                 raise ValueError('Weekly schedule days must be unique')
         if self.schedule_type == 'monthly' and self.schedule_day is None:
             raise ValueError('Monthly schedule requires a day of the month')
+        if self.schedule_type == 'continuous' and self.execution_mode != 'async':
+            raise ValueError('Continuous replication always runs in the background')
         return self
 
 class Note(BaseModel):
@@ -644,7 +715,12 @@ def health():
         exe = engine.executable()
     except engine.EngineError as exc:
         exe = str(exc)
-    return {'service': 'ok', 'engine': exe, 'platform': os.name, 'jobs_running': len(ACTIVE)}
+    worker_online = replication_worker_online()
+    running = sql("SELECT COUNT(*) AS count FROM jobs WHERE status IN ('queued','running')", one=True)['count']
+    return {
+        'service': 'ok', 'engine': exe, 'platform': os.name,
+        'jobs_running': running, 'replication_worker_online': worker_online,
+    }
 
 @app.get('/api/roots', dependencies=[Depends(require_auth)])
 def approved_roots():
@@ -677,8 +753,8 @@ def remove_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
         if len(roots) == 1:
             raise HTTPException(409, 'At least one approved root must remain')
         remaining_roots = [path for path in roots if path.casefold() != root.casefold()]
-        for jid in ACTIVE:
-            job = get_job(jid)
+        running_jobs = sql("SELECT id,source,destination FROM jobs WHERE status IN ('queued','running')")
+        for job in running_jobs:
             try:
                 engine.validate_pair(job['source'], job['destination'], remaining_roots)
             except engine.EngineError as exc:
@@ -735,7 +811,7 @@ def run(jid: int, mode: str):
 @app.post('/api/jobs/{jid}/validate', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def validate(jid: int, data: Confirmation):
     job = get_job(jid)
-    if jid in ACTIVE or not job['dry_run_ok'] or not data.confirmed:
+    if jid in ACTIVE or job['status'] in ('queued', 'running') or not job['dry_run_ok'] or not data.confirmed:
         raise HTTPException(409, 'Complete a successful dry-run and explicitly confirm external ACL/data checks')
     sql('UPDATE jobs SET validated=1 WHERE id=?', (jid,))
     event(jid, 'warning', 'Operator attested validation: ' + data.note)
@@ -744,7 +820,7 @@ def validate(jid: int, data: Confirmation):
 @app.post('/api/jobs/{jid}/freeze', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def freeze(jid: int, data: Confirmation):
     job = get_job(jid)
-    if jid in ACTIVE or not job['validated'] or not data.confirmed:
+    if jid in ACTIVE or job['status'] in ('queued', 'running') or not job['validated'] or not data.confirmed:
         raise HTTPException(409, 'Validation and explicit source-write-freeze confirmation required')
     sql('UPDATE jobs SET frozen=1 WHERE id=?', (jid,))
     event(jid, 'warning', 'Operator confirmed source writes frozen: ' + data.note)
@@ -753,8 +829,10 @@ def freeze(jid: int, data: Confirmation):
 @app.post('/api/jobs/{jid}/approve', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def approve(jid: int, data: Confirmation):
     job = get_job(jid)
-    if not (job['validated'] and job['frozen'] and data.confirmed):
-        raise HTTPException(409, 'Validation, freeze, and approval confirmation required')
+    if jid in ACTIVE or job['status'] in ('queued', 'running') or not (
+        job['validated'] and job['frozen'] and data.confirmed
+    ):
+        raise HTTPException(409, 'Job must be idle; validation, freeze, and approval confirmation are required')
     sql('UPDATE jobs SET approved=1 WHERE id=?', (jid,))
     event(jid, 'warning', 'Operator approved final sync: ' + data.note)
     return {'approved': True}
@@ -763,7 +841,7 @@ def approve(jid: int, data: Confirmation):
 def verify_final(jid: int, data: Confirmation):
     job = get_job(jid)
     last = sql('SELECT * FROM runs WHERE job_id=? AND mode=? ORDER BY id DESC LIMIT 1', (jid, 'final'), one=True)
-    if jid in ACTIVE or not last or last['status'] != 'success' or not data.confirmed:
+    if jid in ACTIVE or job['status'] in ('queued', 'running') or not last or last['status'] != 'success' or not data.confirmed:
         raise HTTPException(409, 'Successful final sync and explicit independent verification required')
     sql('UPDATE jobs SET final_verified=1 WHERE id=?', (jid,))
     event(jid, 'warning', 'Operator attested independent final verification: ' + data.note)
@@ -772,7 +850,7 @@ def verify_final(jid: int, data: Confirmation):
 @app.post('/api/jobs/{jid}/handoff', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def handoff(jid: int, data: Confirmation):
     job = get_job(jid)
-    if jid in ACTIVE or not job['final_verified'] or not data.confirmed:
+    if jid in ACTIVE or job['status'] in ('queued', 'running') or not job['final_verified'] or not data.confirmed:
         raise HTTPException(409, 'Independent final verification and handoff confirmation required')
     sql('UPDATE jobs SET handoff=1,status=? WHERE id=?', ('handed-off', jid))
     schedule(get_job(jid))

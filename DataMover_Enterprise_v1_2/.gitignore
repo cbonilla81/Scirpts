@@ -1,4 +1,5 @@
 .env
+.worker.env
 state/
 .venv/
 __pycache__/

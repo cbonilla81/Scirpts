@@ -36,6 +36,12 @@ def test_final_security_repair():
         args = command(r'C:\Source', r'D:\Dest', final=True)
     assert '/SECFIX' in args and '/TIMFIX' in args
 
+def test_source_wins_includes_identical_and_modified_files():
+    with patch('app.engine.executable', return_value='robocopy.exe'):
+        args = command(r'C:\Source', r'D:\Dest', source_wins=True)
+    assert all(option in args for option in ('/IS', '/IT', '/IM'))
+    assert '/MIR' not in args and '/PURGE' not in args
+
 def test_exit_code_bitmask():
     assert all(exit_success(i) for i in range(8))
     assert not exit_success(8)

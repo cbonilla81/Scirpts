@@ -1,4 +1,5 @@
 import pytest
+import threading
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -122,8 +123,50 @@ def test_legacy_cron_schedule_remains_supported(roots_db):
     assert main.SCHED.get_job(str(job['id'])) is not None
 
 
+def test_continuous_job_uses_worker_and_requires_background_mode(roots_db):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Continuous migration',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+        schedule_type='continuous',
+    ))
+
+    assert job['schedule_type'] == 'continuous'
+    assert job['execution_mode'] == 'async'
+    assert main.SCHED.get_job(str(job['id'])) is None
+    with pytest.raises(ValidationError):
+        main.JobIn(
+            name='Invalid continuous migration',
+            source=r'\\FS01\Shares\Finance',
+            destination=r'\\FS02\Shares\Finance',
+            schedule_type='continuous',
+            execution_mode='sync',
+        )
+
+
+def test_async_run_is_persistently_queued_for_worker(roots_db):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Queued migration',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+    ))
+
+    result = main.submit(job['id'], 'sync')
+
+    assert result['accepted'] is True
+    assert result['queued'] is True
+    assert main.get_job(job['id'])['status'] == 'queued'
+    assert main.sql('SELECT status FROM runs WHERE id=?', (result['run_id'],), one=True)['status'] == 'queued'
+
+
 def test_synchronous_execution_waits_for_worker_result(roots_db, monkeypatch):
     main = roots_db
+    main.sql(
+        'INSERT INTO worker_heartbeats(name,updated) VALUES(?,?)',
+        ('replication', main.now()),
+    )
     job = main.create_job(main.JobIn(
         name='Synchronous migration',
         source=r'\\FS01\Shares\Finance',
@@ -131,12 +174,58 @@ def test_synchronous_execution_waits_for_worker_result(roots_db, monkeypatch):
         execution_mode='sync',
     ))
 
-    def finish_inline(jid, mode):
-        main.sql('UPDATE jobs SET status=?,phase=? WHERE id=?', ('success', mode, jid))
+    def finish_inline(jid, mode, run_id):
+        main.sql(
+            'UPDATE runs SET status=?,finished=?,exit_code=? WHERE id=?',
+            ('success', main.now(), 0, run_id),
+        )
+        main.sql(
+            'UPDATE jobs SET status=?,phase=?,last_exit=?,last_finished=?,last_error=NULL WHERE id=?',
+            ('success', mode, 0, main.now(), jid),
+        )
         with main.LOCK:
             main.ACTIVE.discard(jid)
 
     monkeypatch.setattr(main, 'run_job', finish_inline)
-    result = main.submit(job['id'], 'sync')
+    worker_stopped = threading.Event()
 
-    assert result == {'accepted': True, 'queued': False, 'status': 'success', 'error': None}
+    def consume_run():
+        while not worker_stopped.is_set():
+            run = main.claim_next_run()
+            if run:
+                main.run_job(run['job_id'], run['mode'], run['id'])
+                return
+            worker_stopped.wait(0.01)
+
+    worker_thread = threading.Thread(target=consume_run)
+    worker_thread.start()
+    result = main.submit(job['id'], 'sync')
+    worker_thread.join(timeout=5)
+
+    assert not worker_thread.is_alive()
+    assert result['accepted'] is True
+    assert result['queued'] is False
+    assert result['status'] == 'success'
+
+
+def test_approval_is_rejected_while_job_is_running(roots_db):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Cutover migration',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+    ))
+    main.sql(
+        'UPDATE jobs SET dry_run_ok=1,validated=1,frozen=1 WHERE id=?',
+        (job['id'],),
+    )
+    main.ACTIVE.add(job['id'])
+    try:
+        with pytest.raises(HTTPException) as error:
+            main.approve(
+                job['id'],
+                main.Confirmation(note='Approved after validation', confirmed=True),
+            )
+        assert error.value.status_code == 409
+    finally:
+        main.ACTIVE.discard(job['id'])

@@ -42,13 +42,15 @@ def executable():
         raise EngineError('robocopy.exe was not found on PATH')
     return exe
 
-def command(source, destination, *, dry_run=False, final=False, log_path=None, threads=16):
+def command(source, destination, *, dry_run=False, final=False, source_wins=False, log_path=None, threads=16):
     if not 1 <= int(threads) <= 32:
         raise EngineError('Threads must be between 1 and 32')
     # /E does not delete destination-only files. /XJ prevents junction traversal.
     # /COPYALL requires backup/security privileges and compatible NTFS destination.
     args = [executable(), source, destination, '/E', '/COPYALL', '/DCOPY:DAT', '/ZB',
             f'/MT:{int(threads)}', '/R:3', '/W:5', '/XJ', '/NP', '/TEE', '/BYTES']
+    if source_wins:
+        args += ['/IS', '/IT', '/IM']
     if final:
         args += ['/SECFIX', '/TIMFIX']
     if dry_run:

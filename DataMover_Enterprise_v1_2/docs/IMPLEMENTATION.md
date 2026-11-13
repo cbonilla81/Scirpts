@@ -32,7 +32,17 @@ notepad .env
 .\scripts\Start-DataMover.ps1
 ```
 
-Set a random `DATAMOVER_SESSION_SECRET` of at least 32 characters and initial approved source/destination roots. On first startup, `DATAMOVER_ALLOWED_ROOTS` seeds the roots persisted in the application database. Signed-in users can add and remove roots from **Manage approved roots** in the web UI; these changes persist without editing `.env` or restarting. Any signed-in user can manage roots, so adding a root expands the paths available to every user. At least one root must remain, and a root needed by an active migration cannot be removed. Removing a root prevents affected saved jobs from starting again. Keep the environment file readable only by administrators and the service identity. The app starts on localhost port 8080. Avoid public binding. Run one process only. For long-running production services, use an approved Windows service manager with automatic restart and a dedicated domain account; verify service environment variables and profile access.
+Set a random `DATAMOVER_SESSION_SECRET` of at least 32 characters and initial approved source/destination roots. On first startup, `DATAMOVER_ALLOWED_ROOTS` seeds the roots persisted in the application database. Signed-in users can add and remove roots from **Manage approved roots** in the web UI; these changes persist without editing `.env` or restarting. Any signed-in user can manage roots, so adding a root expands the paths available to every user. At least one root must remain, and a root needed by an active migration cannot be removed. Removing a root prevents affected saved jobs from starting again. Keep `.env` readable only by administrators and the API identity. The app starts on localhost port 8080. Avoid public binding. Run one API process only.
+
+Continuous and queued jobs run in a separate Windows service. Copy `.worker.env.example` to `.worker.env`, set its `DATAMOVER_STATE` to the same directory as the API `.env`, and set the same initial roots. The worker environment contains no web authentication secrets. Install the service from elevated PowerShell:
+
+```powershell
+Copy-Item .worker.env.example .worker.env
+notepad .worker.env
+.\scripts\Install-DataMover-ReplicationService.ps1 -ServiceAccount 'CONTOSO\svc_DataMover$'
+```
+
+Use a dedicated gMSA with the required source read/backup and destination write/restore/security permissions. Grant it access to the shared state folder and `.worker.env`, not the API `.env`. The installer configures automatic startup and starts the service. It requires the gMSA to have Log on as a service rights. The API queues jobs while the worker is offline; the console reports worker availability. Closing the interactive API PowerShell window stops the web console, but the worker service continues replication.
 
 ### Configure sign-in
 
@@ -44,30 +54,32 @@ Set a random `DATAMOVER_SESSION_SECRET` of at least 32 characters and initial ap
 
 ## 4. Dry-Run acceptance
 
-Create a small pilot job. Click **Dry-Run**. Verify that the job returns `success`, the run's exit code is under 8, and `state\logs` contains a Robocopy log. Review the listed changes, extras, mismatches, inaccessible paths, and permissions. `/L` does not prove write access or successful ACL application.
+Create a small pilot job. Confirm **Replication worker online** in the console. Click **Dry-Run**. Verify that the job returns `success`, the run's exit code is under 8, and `state\logs` contains a Robocopy log. Review the listed changes, extras, mismatches, inaccessible paths, and permissions. `/L` does not prove write access or successful ACL application.
 
 ## 5. Baseline and incremental sync
 
-Click **Start Sync**. Inspect run logs and independently compare source/destination file counts, sizes, timestamps, selected hashes and NTFS ACLs. Use the job schedule picker for a one-time date/time or a daily, weekly, or monthly recurrence; schedule times use `DATAMOVER_TZ`. Changes to permissions on unchanged files may need `/SECFIX`; final sync includes it. Note: `/E` does not remove destination-only files.
+Click **Run sync**. Inspect run logs and independently compare source/destination file counts, sizes, timestamps, selected hashes and NTFS ACLs. Use the job schedule picker for a one-time date/time, a daily/weekly/monthly recurrence, or **Continuous · watch for changes**. Continuous jobs require a successful Dry-Run to activate. They debounce source change notifications by two seconds, then run Robocopy; a full reconciliation runs at the configured interval (default five minutes). Destination-only files and source deletions are preserved. For continuous jobs, source file content takes precedence over destination edits. Changes to permissions on unchanged files may need `/SECFIX`; final sync includes it.
 
 ## 6. Controlled cutover
 
-Stop application writes and confirm source freeze externally. Run fresh Dry-Run, record validation evidence, attest freeze and approve final sync. Click **Final Sync**. Confirm successful completion, independently validate again, and attest final verification. Make DFS/DNS/share mapping changes manually under change control, then record handoff. Rollback plan is available from the dashboard.
+Run a fresh Dry-Run and independently validate the destination. Attest validation, stop source writes through the external operational procedure, then confirm freeze and approve in the console. For a continuous job, freeze confirmation stops the watcher. Click **Final Sync**; confirm successful completion, independently validate again, and attest final verification. Make DFS/DNS/share mapping changes manually under change control, then record handoff. Rollback plan is available from the dashboard.
 
 ## 7. Pilot acceptance checklist
 
 - [ ] API only reachable from approved management access path
-- [ ] Session secret, provider credentials and `.env` ACLs protected; dedicated service identity used
+- [ ] Session secret, provider credentials and API `.env` ACLs protected; worker `.worker.env` contains no web secrets
 - [ ] First administrator created using the one-time setup code, then setup code invalidated
 - [ ] Enabled sign-in methods tested; AD StartTLS certificate and Entra tenant allowlist verified
 - [ ] HTTPS reverse proxy and secure session cookie configured for remote access
-- [ ] Robocopy located on worker PATH and executed under service identity
+- [ ] Replication worker service is online, starts automatically, and uses the least-privilege gMSA
+- [ ] Robocopy located on worker PATH and executed under the worker service identity
 - [ ] Approved-root enforcement tested
 - [ ] Dry-Run does not write or delete data
 - [ ] Initial copy succeeds on a representative sample
 - [ ] DACL, SACL, owner, inheritance, and effective access verified independently
 - [ ] Destination-only files remain untouched
 - [ ] Scheduler fires and does not overlap a job
+- [ ] Continuous watcher detects file creation, modification, rename, and deletion without deleting destination data
 - [ ] Final sync blocked before approvals
 - [ ] Handoff disables future schedules
 - [ ] Rollback plan reviewed and source retained
@@ -84,7 +96,9 @@ Stop application writes and confirm source freeze externally. Run fresh Dry-Run,
 - **Exit >=8**: Inspect per-run Robocopy log and source/destination SMB permissions.
 - **Access denied**: Check worker identity, share permissions, NTFS DACL, backup/restore/security privileges, and remote access restrictions.
 - **No jobs scheduled**: Confirm one API process, the job schedule and time zone, and that the application is running during the scheduled window.
+- **Worker offline or jobs queued**: Check the `DataMoverReplication` service, `.worker.env` state path, service-account access to the state folder and shares, and `state\replication-worker.log`.
+- **Continuous job waiting for Dry-Run**: Complete a successful Dry-Run; the worker does not start watching/copying before that first safety check.
 
 ## 9. Limits for 10–100 TB
 
-This pilot does not offer reliable byte progress or ETA, distributed durable queues, automatic integrity/ACL diffs, long-path edge-case handling, or unattended enterprise cutover. Benchmark large directories and high file counts before scaling. Logs can grow substantially and need managed retention. Add a service supervisor, central monitoring, security review, and restore tests before production.
+This pilot does not offer reliable byte progress or ETA, a distributed queue, automatic integrity/ACL diffs, long-path edge-case handling, or unattended enterprise cutover. File-change notifications can be missed on network shares; periodic reconciliation provides eventual catch-up, not instantaneous delivery. Benchmark large directories and high file counts before scaling. Logs can grow substantially and need managed retention. Add central monitoring, security review, and restore tests before production.
