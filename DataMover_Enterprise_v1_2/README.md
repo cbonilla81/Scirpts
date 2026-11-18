@@ -52,11 +52,11 @@ Windows replication worker service ----------------------+
                  SMB source --> SMB destination
 ```
 
-The API persists run requests to SQLite; a separate Windows service claims and executes them. Run the worker under a **dedicated least-privilege domain identity**, with source read/backup and destination write/restore/security privileges as required. `/COPYALL` requires support for owner and SACL transfer; test privileges, NTFS semantics, and inherited ACL behavior. Share-level permissions are **not** copied by Robocopy and require a separate plan.
+The API persists run requests to SQLite; a separate Windows service claims and executes them. Run the worker under a **dedicated least-privilege domain identity**, with source read/backup and destination write/restore/security privileges as required. `/COPY:DATSO` requires support for DACL and owner transfer; test privileges, NTFS semantics, and inherited ACL behavior. Share-level permissions are **not** copied by Robocopy and require a separate plan.
 
 ## Migration commands
 
-The worker launches an argument list via `subprocess.Popen(shell=False)` and uses the system `robocopy.exe`. Normal runs use `/E /COPYALL /DCOPY:DAT /ZB /MT:16 /R:3 /W:5 /XJ /NP /TEE /BYTES` and per-run `/LOG:`. Continuous jobs also use `/IS /IT /IM` so source files take precedence over destination edits. **No `/MIR` or `/PURGE**; source deletions are not propagated and destination-only data remains. Dry-Run adds `/L /R:0 /W:0`. Final sync adds `/SECFIX /TIMFIX`. Robocopy exit codes 0–7 are treated as non-fatal; 8+ is failure. Exit codes 2–7 may still require manual review of extras/mismatches.
+The worker launches an argument list via `subprocess.Popen(shell=False)` and uses the system `robocopy.exe`. Normal runs use `/E /COPY:DATSO /DCOPY:DAT /ZB /MT:16 /R:3 /W:5 /XJ /NP /TEE /BYTES` and per-run `/LOG:`. Continuous jobs also use `/IS /IT /IM` so source files take precedence over destination edits. **No `/MIR` or `/PURGE**; source deletions are not propagated and destination-only data remains. Dry-Run adds `/L /R:0 /W:0`. Final sync adds `/SECFIX /TIMFIX`. Robocopy exit codes 0–7 are treated as non-fatal; 8+ is failure. Exit codes 2–7 may still require manual review of extras/mismatches.
 
 ## Scheduling
 

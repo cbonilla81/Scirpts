@@ -28,7 +28,8 @@ def test_reject_nested():
 def test_dry_run_no_delete():
     with patch('app.engine.executable', return_value=r'C:\Windows\System32\robocopy.exe'):
         args = command(r'\\FS01\Shares\Finance', r'\\FS02\Shares\Finance', dry_run=True)
-    assert '/L' in args and '/COPYALL' in args and '/XJ' in args
+    assert '/L' in args and '/COPY:DATSO' in args and '/XJ' in args
+    assert '/COPYALL' not in args
     assert '/MIR' not in args and '/PURGE' not in args
 
 def test_final_security_repair():

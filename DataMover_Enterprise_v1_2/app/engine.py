@@ -46,8 +46,7 @@ def command(source, destination, *, dry_run=False, final=False, source_wins=Fals
     if not 1 <= int(threads) <= 32:
         raise EngineError('Threads must be between 1 and 32')
     # /E does not delete destination-only files. /XJ prevents junction traversal.
-    # /COPYALL requires backup/security privileges and compatible NTFS destination.
-    args = [executable(), source, destination, '/E', '/COPYALL', '/DCOPY:DAT', '/ZB',
+    args = [executable(), source, destination, '/E', '/COPY:DATSO', '/DCOPY:DAT', '/ZB',
             f'/MT:{int(threads)}', '/R:3', '/W:5', '/XJ', '/NP', '/TEE', '/BYTES']
     if source_wins:
         args += ['/IS', '/IT', '/IM']
