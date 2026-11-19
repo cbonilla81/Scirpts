@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#10263e">
   <title>DataMover Enterprise | Migration Console</title>
+  <link rel="icon" type="image/png" href="/logo.png">
   <style>
     :root {
       color-scheme: light;
@@ -332,7 +333,7 @@
 
     <main class="main" id="overview">
       <header class="topbar">
-        <div class="crumb">Workspace <span aria-hidden="true">/</span> <strong>Overview</strong></div>
+        <div class="crumb">Workspace <span aria-hidden="true">/</span> <strong id="workspaceCrumb">Overview</strong></div>
         <div class="top-actions">
           <img class="rsandh-logo" src="/logo.png" alt="RS&amp;H">
           <span id="connectionState" class="connection-state"><span class="dot"></span> Not connected</span>
@@ -491,27 +492,27 @@
             </div>
             <div class="guard-note">Robocopy exit codes 0–7 are treated as non-fatal and may still need review. The dashboard does not report trustworthy byte progress or ETA. No automatic ACL comparison, DNS/DFS switching or rollback execution is provided.</div>
           </section>
-          <section class="panel" id="directory-section" hidden style="margin-top:15px">
-            <div class="panel-heading"><div><h2>Active Directory integration</h2><div class="panel-sub">Configure LDAP StartTLS and direct security-group authorization. AD passwords are used only for sign-in or a connection test and are never saved.</div></div></div>
-            <form id="adSettingsForm">
-              <div class="field"><label for="adLdapUrl">LDAP server URL</label><input id="adLdapUrl" required maxlength="512" placeholder="ldap://dc.example.com:389"></div>
-              <div class="field"><label for="adSearchBase">Search base DN</label><input id="adSearchBase" required maxlength="512" placeholder="DC=example,DC=com"></div>
-              <div class="field"><label for="adCaCert">CA certificate path (optional)</label><input id="adCaCert" maxlength="1024" placeholder="C:\\DataMover\\certs\\ad-ca.pem"></div>
-              <div class="field"><label for="adOperatorGroup">Operators group DN</label><input id="adOperatorGroup" required maxlength="512" placeholder="CN=DataMover Operators,OU=Groups,DC=example,DC=com"></div>
-              <div class="field"><label for="adAdminGroup">Administrators group DN</label><input id="adAdminGroup" required maxlength="512" placeholder="CN=DataMover Administrators,OU=Groups,DC=example,DC=com"></div>
-              <div class="modal-note">Administrators inherit operator access. Group membership must be direct; users in neither configured group cannot sign in. Local administrator access remains available.</div>
-              <div class="action-row"><button class="button primary" type="submit">Save AD settings</button></div>
-            </form>
-            <form id="adTestForm" style="margin-top:16px">
-              <h3 style="color:#30455d;font-size:11px">Test connection and group access</h3>
-              <div class="field"><label for="adTestUsername">Test user UPN</label><input id="adTestUsername" required maxlength="256" autocomplete="username"></div>
-              <div class="field"><label for="adTestPassword">Test user password</label><input id="adTestPassword" type="password" required maxlength="1024" autocomplete="current-password"></div>
-              <div class="action-row"><button class="button" type="submit">Test AD connection</button></div>
-            </form>
-            <div id="adSettingsMessage" class="message" role="status" aria-live="polite"></div>
-          </section>
           <footer class="footer">DataMover Enterprise v1.2 · Robocopy-only Windows pilot · No automatic deletions, ACL verification or client redirection.</footer>
         </div>
+        <section class="panel" id="directory-section" hidden aria-labelledby="adHeading">
+          <div class="panel-heading"><div><h2 id="adHeading">Active Directory integration</h2><div class="panel-sub">Configure LDAP StartTLS and direct security-group authorization. AD passwords are used only for sign-in or a connection test and are never saved.</div></div></div>
+          <form id="adSettingsForm">
+            <div class="field"><label for="adLdapUrl">LDAP server URL</label><input id="adLdapUrl" required maxlength="512" placeholder="ldap://dc.example.com:389"></div>
+            <div class="field"><label for="adSearchBase">Search base DN</label><input id="adSearchBase" required maxlength="512" placeholder="DC=example,DC=com"></div>
+            <div class="field"><label for="adCaCert">CA certificate path (optional)</label><input id="adCaCert" maxlength="1024" placeholder="C:\\DataMover\\certs\\ad-ca.pem"></div>
+            <div class="field"><label for="adOperatorGroup">Operators group DN</label><input id="adOperatorGroup" required maxlength="512" placeholder="CN=DataMover Operators,OU=Groups,DC=example,DC=com"></div>
+            <div class="field"><label for="adAdminGroup">Administrators group DN</label><input id="adAdminGroup" required maxlength="512" placeholder="CN=DataMover Administrators,OU=Groups,DC=example,DC=com"></div>
+            <div class="modal-note">Administrators inherit operator access. Group membership must be direct; users in neither configured group cannot sign in. Local administrator access remains available.</div>
+            <div class="action-row"><button class="button primary" type="submit">Save AD settings</button></div>
+          </form>
+          <form id="adTestForm" style="margin-top:16px">
+            <h3 style="color:#30455d;font-size:11px">Test connection and group access</h3>
+            <div class="field"><label for="adTestUsername">Test user UPN</label><input id="adTestUsername" required maxlength="256" autocomplete="username"></div>
+            <div class="field"><label for="adTestPassword">Test user password</label><input id="adTestPassword" type="password" required maxlength="1024" autocomplete="current-password"></div>
+            <div class="action-row"><button class="button" type="submit">Test AD connection</button></div>
+          </form>
+          <div id="adSettingsMessage" class="message" role="status" aria-live="polite"></div>
+        </section>
       </div>
     </main>
   </div>
@@ -847,12 +848,11 @@
     }
     function setConnected(engine) {
       $('authBox').hidden = true;
-      $('workspace').hidden = false;
       $('lockButton').hidden = false;
       $('rootsButton').hidden = false;
       $('usersButton').hidden = !currentUser?.is_admin;
       $('adNavLink').hidden = demoMode || !currentUser?.is_admin;
-      $('directory-section').hidden = demoMode || !currentUser?.is_admin;
+      updateWorkspaceView();
       $('connectionState').classList.add('connected');
       $('connectionState').innerHTML = '<span class="dot connected"></span> Connected';
       $('controllerDot').classList.add('connected');
@@ -1133,7 +1133,6 @@
         ? 'Demo simulation only. Actions update sample data in this browser; nothing is sent to production.'
         : 'Controller connected. Review job status and cutover prerequisites before taking action.');
       await refresh();
-      if (!demoMode && currentUser?.is_admin) await loadAdSettings();
     }
     async function initializeAuth() {
       if (demoMode) {
@@ -1197,13 +1196,12 @@
       jobs = [];
       selectedRuns = [];
       selectedEvents = [];
-      $('workspace').hidden = true;
       $('authBox').hidden = false;
       $('lockButton').hidden = true;
       $('rootsButton').hidden = true;
       $('usersButton').hidden = true;
       $('adNavLink').hidden = true;
-      $('directory-section').hidden = true;
+      updateWorkspaceView();
       $('rootsModal').classList.remove('open');
       $('connectionState').classList.remove('connected');
       $('connectionState').innerHTML = '<span class="dot"></span> Not connected';
@@ -1396,7 +1394,6 @@
     $('refreshButton').addEventListener('click', () => currentUser ? refresh() : $('loginUsername').focus());
     $('usersButton').addEventListener('click', openUsers);
     $('rootsButton').addEventListener('click', openRoots);
-    $('adNavLink').addEventListener('click', loadAdSettings);
     $('adSettingsForm').addEventListener('submit', async event => {
       event.preventDefault();
       const button = event.currentTarget.querySelector('button[type="submit"]');
@@ -1555,10 +1552,24 @@
         await refresh();
       } catch (error) { showNotice(error.message, true); }
     });
-    document.querySelectorAll('.nav a').forEach(link => link.addEventListener('click', () => {
-      document.querySelectorAll('.nav a').forEach(item => item.classList.remove('active'));
-      link.classList.add('active');
-    }));
+    function updateWorkspaceView() {
+      const section = $('directory-section');
+      const hash = window.location.hash;
+      const showDirectory = hash === '#directory-section' && !$('adNavLink').hidden;
+      const openingDirectory = showDirectory && section.hidden;
+      $('workspace').hidden = !currentUser || showDirectory;
+      section.hidden = !showDirectory;
+      $('workspaceCrumb').textContent = showDirectory ? 'Active Directory' : 'Overview';
+
+      const links = [...document.querySelectorAll('.nav a')];
+      const activeLink = links.find(link => !link.hidden && link.hash === hash) || links[0];
+      links.forEach(link => link.classList.toggle('active', link === activeLink));
+      if (currentUser && hash === activeLink.hash) {
+        document.getElementById(hash.slice(1))?.scrollIntoView();
+      }
+      if (openingDirectory) loadAdSettings();
+    }
+    window.addEventListener('hashchange', updateWorkspaceView);
     window.setInterval(() => {
       if (currentUser && document.visibilityState === 'visible') refresh();
     }, 5000);
