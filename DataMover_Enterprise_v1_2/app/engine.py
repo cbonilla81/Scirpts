@@ -46,12 +46,12 @@ def command(source, destination, *, dry_run=False, final=False, source_wins=Fals
     if not 1 <= int(threads) <= 32:
         raise EngineError('Threads must be between 1 and 32')
     # /E does not delete destination-only files. /XJ prevents junction traversal.
-    args = [executable(), source, destination, '/E', '/COPY:DATSO', '/DCOPY:DAT', '/ZB',
+    args = [executable(), source, destination, '/E', '/COPY:DAT', '/DCOPY:DAT', '/ZB',
             f'/MT:{int(threads)}', '/R:3', '/W:5', '/XJ', '/NP', '/TEE', '/BYTES']
     if source_wins:
         args += ['/IS', '/IT', '/IM']
     if final:
-        args += ['/SECFIX', '/TIMFIX']
+        args += ['/TIMFIX']
     if dry_run:
         args += ['/L', '/R:0', '/W:0']
     if log_path:

@@ -42,7 +42,7 @@ notepad .worker.env
 .\scripts\Install-DataMover-ReplicationService.ps1 -ServiceAccount 'CONTOSO\svc_DataMover$'
 ```
 
-Use a dedicated gMSA with the required source read/backup and destination write/restore/security permissions. Grant it read/execute access to the project `app`, `scripts`, and `.venv` folders, read access to `.worker.env`, and Modify access to the shared state folder. Do not grant access to the API `.env`. The installer configures automatic startup and starts the service. The gMSA needs Log on as a service rights. The API queues jobs while the worker is offline; the console reports worker availability. Closing the interactive API PowerShell window stops the web console, but the worker service continues replication.
+Use a dedicated gMSA with the required source read and destination write permissions. Grant it read/execute access to the project `app`, `scripts`, and `.venv` folders, read access to `.worker.env`, and Modify access to the shared state folder. Do not grant access to the API `.env`. The installer configures automatic startup and starts the service. The gMSA needs Log on as a service rights. The API queues jobs while the worker is offline; the console reports worker availability. Closing the interactive API PowerShell window stops the web console, but the worker service continues replication.
 
 ### Configure sign-in
 
@@ -54,11 +54,11 @@ Use a dedicated gMSA with the required source read/backup and destination write/
 
 ## 4. Dry-Run acceptance
 
-Create a small pilot job. Confirm **Replication worker online** in the console. Click **Dry-Run**. Verify that the job returns `success`, the run's exit code is under 8, and `state\logs` contains a Robocopy log. Review the listed changes, extras, mismatches, inaccessible paths, and permissions. `/L` does not prove write access or successful ACL application.
+Create a small pilot job. Confirm **Replication worker online** in the console. Click **Dry-Run**. Verify that the job returns `success`, the run's exit code is under 8, and `state\logs` contains a Robocopy log. Review the listed changes, extras, mismatches, inaccessible paths, and permissions. `/L` does not prove write access.
 
 ## 5. Baseline and incremental sync
 
-Click **Run sync**. Inspect run logs and independently compare source/destination file counts, sizes, timestamps, selected hashes and NTFS ACLs. Use the job schedule picker for a one-time date/time, a daily/weekly/monthly recurrence, cron, or **Continuous · watch for changes**. Continuous jobs require a successful Dry-Run followed by a successful initial Run Sync; only after that sync succeeds does the worker start the watcher. The dashboard shows worker and per-job watcher state, latest sync result, and watcher errors. The worker debounces source change notifications by two seconds, then runs Robocopy; a full reconciliation runs at the configured interval (default five minutes). Destination-only files and source deletions are preserved. For continuous jobs, source file content takes precedence over destination edits. Changes to permissions on unchanged files may need `/SECFIX`; final sync includes it.
+Click **Run sync**. Inspect run logs and independently compare source/destination file counts, sizes, timestamps, and selected hashes. Use the job schedule picker for a one-time date/time, a daily/weekly/monthly recurrence, cron, or **Continuous · watch for changes**. Continuous jobs require a successful Dry-Run followed by a successful initial Run Sync; only after that sync succeeds does the worker start the watcher. The dashboard shows worker and per-job watcher state, latest sync result, and watcher errors. The worker debounces source change notifications by two seconds, then runs Robocopy; a full reconciliation runs at the configured interval (default five minutes). Destination-only files and source deletions are preserved. For continuous jobs, source file content takes precedence over destination edits. Configure destination permissions before syncing. Final sync repairs timestamps using `/TIMFIX`.
 
 Idle jobs can be edited. Queued, running, and handed-off jobs are protected from edits. Saving changes clears the prior Dry-Run, continuous readiness, and cutover attestations, so repeat the required checks for the updated configuration.
 
