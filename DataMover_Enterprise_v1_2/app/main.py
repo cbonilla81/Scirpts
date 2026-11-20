@@ -77,7 +77,8 @@ if SETUP_TOKEN_CONFIG and len(SETUP_TOKEN_CONFIG) < 24:
     raise RuntimeError('DATAMOVER_SETUP_TOKEN must contain at least 24 characters')
 TZ = os.environ.get('DATAMOVER_TZ', 'UTC')
 ZoneInfo(TZ)
-POOL = ThreadPoolExecutor(max_workers=max(1, min(8, int(os.environ.get('DATAMOVER_MAX_WORKERS', '2')))))
+MAX_WORKERS = max(1, min(8, int(os.environ.get('DATAMOVER_MAX_WORKERS', '2'))))
+POOL = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 SCHED = BackgroundScheduler(timezone=TZ)
 ACTIVE = set()
 LOCK = threading.RLock()
@@ -338,6 +339,8 @@ def wait_for_run(jid, run_id):
 
 def claim_next_run():
     with LOCK, connect() as db:
+        if len(ACTIVE) >= MAX_WORKERS:
+            return None
         row = db.execute(
             "SELECT id,job_id,mode FROM runs WHERE status='queued' ORDER BY id LIMIT 1"
         ).fetchone()
@@ -985,7 +988,16 @@ def events(jid: int):
 @app.get('/api/jobs/{jid}/runs', dependencies=[Depends(require_auth)])
 def runs(jid: int):
     get_job(jid)
-    return sql('SELECT * FROM runs WHERE job_id=? ORDER BY id DESC LIMIT 50', (jid,))
+    rows = sql('SELECT * FROM runs WHERE job_id=? ORDER BY id DESC LIMIT 50', (jid,))
+    for run in rows:
+        if run['status'] != 'running' or not run['log_file']:
+            continue
+        try:
+            modified = Path(run['log_file']).stat().st_mtime
+        except OSError:
+            continue
+        run['log_updated'] = datetime.fromtimestamp(modified, timezone.utc).isoformat()
+    return rows
 
 @app.post('/api/jobs/{jid}/run/{mode}', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def run(jid: int, mode: str):

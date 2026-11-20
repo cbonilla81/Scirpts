@@ -1032,11 +1032,23 @@
         $('runList').innerHTML = '<div class="panel-sub">No runs recorded for this job yet.</div>';
         return;
       }
-      $('runList').innerHTML = selectedRuns.slice(0, 6).map(run => `
+      $('runList').innerHTML = selectedRuns.slice(0, 6).map(run => {
+        let activity = '';
+        if (run.status === 'queued') {
+          activity = 'Awaiting a worker slot';
+        } else if (run.status === 'running') {
+          activity = run.log_updated ? `Last Robocopy log update: ${formatTime(run.log_updated)}` : 'Waiting for Robocopy log output';
+          if (run.log_updated && Date.now() - Date.parse(run.log_updated) >= 120000) {
+            activity += ' · No recent log output. Large files can copy silently.';
+          }
+        }
+        return `
         <div class="run"><strong>#${Number(run.id)} · ${escapeHtml(run.mode)} · ${escapeHtml(run.status)}</strong>
           <small>${escapeHtml(formatTime(run.started))} · Exit ${escapeHtml(run.exit_code ?? '—')}</small>
+          ${activity ? `<small>${escapeHtml(activity)}</small>` : ''}
           <small>Log: ${escapeHtml(run.log_file || 'not available')}</small>
-          ${run.summary ? `<small>${escapeHtml(run.summary)}</small>` : ''}</div>`).join('');
+          ${run.summary ? `<small>${escapeHtml(run.summary)}</small>` : ''}</div>`;
+      }).join('');
     }
     async function refresh() {
       if (!currentUser) return;
