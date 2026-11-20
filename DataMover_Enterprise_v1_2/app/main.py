@@ -44,6 +44,9 @@ SESSION_SECRET = os.environ.get('DATAMOVER_SESSION_SECRET', '')
 if len(SESSION_SECRET) < 32 or SESSION_SECRET.startswith('REPLACE_'):
     raise RuntimeError('DATAMOVER_SESSION_SECRET must be a random secret of at least 32 characters')
 COOKIE_SECURE = os.environ.get('DATAMOVER_COOKIE_SECURE', 'false').casefold() == 'true'
+SESSION_TIMEOUT_MINUTES = int(os.environ.get('DATAMOVER_SESSION_TIMEOUT_MINUTES', '30'))
+if SESSION_TIMEOUT_MINUTES < 1:
+    raise RuntimeError('DATAMOVER_SESSION_TIMEOUT_MINUTES must be at least 1')
 INITIAL_ROOTS = [x.strip() for x in os.environ.get('DATAMOVER_ALLOWED_ROOTS', '').split(';') if x.strip()]
 if not INITIAL_ROOTS:
     raise RuntimeError('Set DATAMOVER_ALLOWED_ROOTS to semicolon-delimited approved Windows paths')
@@ -437,12 +440,17 @@ def start_session(request, identity):
     csrf_token = secrets.token_urlsafe(32)
     request.session['identity'] = identity
     request.session['csrf_token'] = csrf_token
+    request.session['expires_at'] = int(time.time()) + SESSION_TIMEOUT_MINUTES * 60
     return {'user': identity, 'csrf_token': csrf_token}
 
 def require_auth(request: Request):
     identity = request.session.get('identity')
     if not isinstance(identity, dict):
         raise HTTPException(401, 'Sign-in required')
+    expires_at = request.session.get('expires_at')
+    if not isinstance(expires_at, int) or time.time() >= expires_at:
+        request.session.clear()
+        raise HTTPException(401, 'Session expired. Sign in again.')
     if identity.get('provider') == 'local':
         user = sql('SELECT id,username,enabled,is_admin FROM users WHERE id=?',
                    (identity.get('id'),), one=True)
@@ -632,7 +640,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
     session_cookie='datamover_session',
-    max_age=8 * 60 * 60,
+    max_age=None,
     same_site='lax',
     https_only=COOKIE_SECURE,
 )

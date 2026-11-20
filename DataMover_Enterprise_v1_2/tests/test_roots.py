@@ -1,6 +1,7 @@
 import pytest
 import threading
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from fastapi import HTTPException
 from pydantic import ValidationError
 
@@ -15,6 +16,24 @@ def roots_db(tmp_path, monkeypatch):
     monkeypatch.setattr(main, 'INITIAL_ROOTS', [r'\\FS01\Shares', r'\\FS02\Shares'])
     main.init_db()
     return main
+
+
+def test_login_expires_even_after_authenticated_requests(roots_db, monkeypatch):
+    main = roots_db
+    monkeypatch.setattr(main, 'SESSION_TIMEOUT_MINUTES', 1)
+    monkeypatch.setattr(main, 'time', SimpleNamespace(time=lambda: 1000))
+    request = SimpleNamespace(session={}, state=SimpleNamespace())
+    identity = {'id': 'operator', 'provider': 'ad'}
+
+    main.start_session(request, identity)
+    monkeypatch.setattr(main.time, 'time', lambda: 1059)
+    assert main.require_auth(request) == identity
+
+    monkeypatch.setattr(main.time, 'time', lambda: 1060)
+    with pytest.raises(HTTPException) as expired:
+        main.require_auth(request)
+    assert expired.value.status_code == 401
+    assert request.session == {}
 
 
 def test_roots_are_seeded_and_can_be_added_and_removed(roots_db):

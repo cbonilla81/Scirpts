@@ -79,7 +79,7 @@ Migration jobs can be edited while idle. Queued, running, and handed-off jobs ca
 
 ## Security and known limits
 
-- Bind to `127.0.0.1` by default; use a vetted TLS reverse proxy for remote access and set `DATAMOVER_COOKIE_SECURE=true`. Local, Active Directory and Entra ID sign-in use eight-hour signed sessions and CSRF protection on mutations. The application does not provide granular job-level RBAC.
+- Bind to `127.0.0.1` by default; use a vetted TLS reverse proxy for remote access and set `DATAMOVER_COOKIE_SECURE=true`. Local, Active Directory and Entra ID sign-ins expire 30 minutes after login by default, even while active. Set `DATAMOVER_SESSION_TIMEOUT_MINUTES` in the API `.env` and restart the API to change the timeout. Browsers normally discard the session cookie when fully closed. To require a fresh login on reopen, disable browser session restore on managed browsers, since it can restore unexpired session cookies. Mutations require CSRF protection. The application does not provide granular job-level RBAC.
 - Approved source/destination roots are enforced; any signed-in user can add or remove roots in the UI, so root management expands or restricts the network paths available to all users. Path traversal, nested paths, unsafe switches, and arbitrary command execution are blocked.
 - Only Windows can run Robocopy. Network shares must be reachable under the **worker service account**.
 - Recent runs shows whether a job is waiting for a worker slot and when its Robocopy log last changed. A large file may copy without recent log output. The dashboard does not estimate byte-level completion or ETA.
