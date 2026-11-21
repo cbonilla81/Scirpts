@@ -206,6 +206,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS approved_roots (
         path TEXT PRIMARY KEY COLLATE NOCASE, created TEXT NOT NULL, created_by TEXT NOT NULL);
         ''')
+        db.execute('BEGIN IMMEDIATE')
+        run_columns = {row['name'] for row in db.execute('PRAGMA table_info(runs)')}
+        if 'automatic_replication' not in run_columns:
+            db.execute('ALTER TABLE runs ADD COLUMN automatic_replication INTEGER NOT NULL DEFAULT 0')
         columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
         for name, definition in (
             ('schedule_type', "TEXT NOT NULL DEFAULT 'manual'"),
@@ -279,12 +283,13 @@ def schedule(job):
 def invalidate(jid):
     sql('UPDATE jobs SET dry_run_ok=0, validated=0, frozen=0, approved=0, final_verified=0 WHERE id=?', (jid,))
 
-def submit(jid, mode, scheduled=False):
+def submit(jid, mode, scheduled=False, *, automatic_replication=False):
     with LOCK:
         job = get_job(jid)
         if jid in ACTIVE or job['status'] in ('queued', 'running'):
             if scheduled:
-                event(jid, 'warning', 'Scheduled run skipped: job already running')
+                if not automatic_replication:
+                    event(jid, 'warning', 'Scheduled run skipped: job already running')
                 return False
             raise HTTPException(409, 'Job already running')
         try:
@@ -307,22 +312,25 @@ def submit(jid, mode, scheduled=False):
             raise HTTPException(503, 'Replication worker is offline; start its Windows service before waiting for a run')
         with connect() as db:
             cursor = db.execute(
-                'UPDATE jobs SET status=?,phase=?,last_error=NULL WHERE id=? AND status NOT IN (?,?)',
-                ('queued', mode, jid, 'queued', 'running'),
+                '''UPDATE jobs SET status=?,phase=?,last_error=NULL WHERE id=? AND status NOT IN (?,?)
+                   AND (NOT ? OR (schedule_type='continuous' AND continuous_ready=1 AND frozen=0 AND handoff=0))''',
+                ('queued', mode, jid, 'queued', 'running', automatic_replication),
             )
             run_id = None
             if cursor.rowcount == 1:
                 run_id = db.execute(
-                    'INSERT INTO runs(job_id,mode,started,status,summary) VALUES(?,?,?,?,?)',
-                    (jid, mode, now(), 'queued', 'Waiting for the replication worker'),
+                    'INSERT INTO runs(job_id,mode,started,status,summary,automatic_replication) VALUES(?,?,?,?,?,?)',
+                    (jid, mode, now(), 'queued', 'Waiting for the replication worker', automatic_replication),
                 ).lastrowid
             db.commit()
         if run_id is None:
             if scheduled:
-                event(jid, 'warning', 'Scheduled run skipped: job already running')
+                if not automatic_replication:
+                    event(jid, 'warning', 'Scheduled run skipped: job already running')
                 return False
             raise HTTPException(409, 'Job already queued or running')
-    event(jid, 'info', f'{mode} queued for the replication worker (run #{run_id})')
+    if not automatic_replication:
+        event(jid, 'info', f'{mode} queued for the replication worker (run #{run_id})')
     if job.get('execution_mode', 'async') == 'sync' and not scheduled:
         return wait_for_run(jid, run_id)
     return {'accepted': True, 'queued': True, 'run_id': run_id}
@@ -377,6 +385,8 @@ def run_job(jid, mode, run_id):
     log_path = None
     try:
         job = get_job(jid)
+        run = sql('SELECT automatic_replication FROM runs WHERE id=?', (run_id,), one=True)
+        automatic_replication = run and run['automatic_replication']
         if mode == 'sync':
             invalidate(jid)
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
@@ -385,7 +395,8 @@ def run_job(jid, mode, run_id):
                               final=(mode == 'final'), source_wins=(job['schedule_type'] == 'continuous'),
                               threads=job['threads'], log_path=log_path)
         sql('UPDATE runs SET log_file=? WHERE id=?', (str(log_path), run_id))
-        event(jid, 'info', f'{mode} started (run #{run_id})')
+        if not automatic_replication:
+            event(jid, 'info', f'{mode} started (run #{run_id})')
         # No shell, no user-controlled switches. Output goes to a bounded in-memory tail.
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -422,7 +433,9 @@ def run_job(jid, mode, run_id):
         else:
             if mode in ('dry-run', 'final'):
                 invalidate(jid)
-        event(jid, 'info' if ok else 'error', f'{mode} {status}; Robocopy exit={code}. See run log.')
+        if not automatic_replication or code != 0:
+            level = 'error' if not ok else 'warning' if automatic_replication and code & 6 else 'info'
+            event(jid, level, f'{mode} {status}; Robocopy exit={code}. See run log.')
     except Exception as exc:
         sql('UPDATE jobs SET status=?,last_finished=?,last_error=? WHERE id=?', ('failed', now(), str(exc)[:500], jid))
         if run_id:

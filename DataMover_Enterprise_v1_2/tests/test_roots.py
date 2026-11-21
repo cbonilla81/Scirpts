@@ -211,6 +211,38 @@ def test_continuous_replication_starts_only_after_dry_run_and_successful_initial
     assert main.continuous_job_status(True)[0]['state'] == 'watching'
 
 
+@pytest.mark.parametrize(('code', 'levels'), [(0, []), (1, ['info']), (2, ['warning']), (8, ['error'])])
+def test_automatic_replication_records_only_actionable_activity(roots_db, monkeypatch, code, levels):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Continuous migration',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+        schedule_type='continuous',
+    ))
+    jid = job['id']
+    main.sql('UPDATE jobs SET continuous_ready=1,dry_run_ok=1 WHERE id=?', (jid,))
+    recorded = []
+    monkeypatch.setattr(main, 'event', lambda jid, level, message: recorded.append(level))
+
+    class Process:
+        stdout = []
+
+        def wait(self):
+            return code
+
+    monkeypatch.setattr(main.engine, 'command', lambda *args, **kwargs: ['robocopy.exe'])
+    monkeypatch.setattr(main.subprocess, 'Popen', lambda *args, **kwargs: Process())
+    queued = main.submit(jid, 'sync', scheduled=True, automatic_replication=True)
+    run = main.claim_next_run()
+    assert run['id'] == queued['run_id']
+    main.run_job(jid, 'sync', run['id'])
+
+    assert recorded == levels
+    assert main.get_job(jid)['last_exit'] == code
+    assert main.sql('SELECT exit_code FROM runs WHERE id=?', (run['id'],), one=True)['exit_code'] == code
+
+
 def test_editing_job_resets_readiness_and_cutover_attestations(roots_db):
     main = roots_db
     job = main.create_job(main.JobIn(

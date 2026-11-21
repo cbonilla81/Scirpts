@@ -4,6 +4,7 @@ import os
 import secrets
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 
@@ -40,7 +41,8 @@ from . import main
 
 LOGGER = logging.getLogger('datamover.replication')
 POLL_SECONDS = 2
-DEBOUNCE_SECONDS = 2
+BATCH_SECONDS = 30
+COOLDOWN_SECONDS = 60
 RETRY_SECONDS = 60
 RECONCILE_SECONDS = int(os.environ.get('DATAMOVER_RECONCILE_SECONDS', '300'))
 if RECONCILE_SECONDS < 60:
@@ -77,7 +79,7 @@ class ReplicationWorker:
 
     def mark_changed(self, job_id):
         with self.pending_lock:
-            self.pending[job_id] = time.monotonic() + DEBOUNCE_SECONDS
+            self.pending.setdefault(job_id, time.monotonic() + BATCH_SECONDS)
 
     def start_watch(self, job):
         job_id = job['id']
@@ -133,30 +135,31 @@ class ReplicationWorker:
             job = main.get_job(job_id)
             if job['status'] in ('queued', 'running'):
                 continue
-            if now >= self.next_reconcile.get(job_id, 0):
-                with self.pending_lock:
-                    if self.pending.get(job_id, now) > now:
-                        self.pending[job_id] = now
+            if job['last_finished']:
+                finished = datetime.fromisoformat(job['last_finished']).timestamp()
+                if time.time() - finished < COOLDOWN_SECONDS:
+                    continue
+            periodic_due = now >= self.next_reconcile[job_id]
             with self.pending_lock:
-                due = self.pending.get(job_id, now + 1) <= now
+                due = periodic_due or self.pending.get(job_id, now + 1) <= now
                 if due:
                     self.pending.pop(job_id, None)
             if not due:
                 continue
             try:
-                queued = main.submit(job_id, 'sync', scheduled=True)
+                queued = main.submit(job_id, 'sync', scheduled=True, automatic_replication=True)
             except main.HTTPException as exc:
                 main.event(job_id, 'error', f'Continuous reconciliation failed to queue: {exc.detail}')
                 LOGGER.error('Unable to queue continuous replication for Job #%s: %s', job_id, exc.detail)
                 with self.pending_lock:
-                    self.pending.setdefault(job_id, now + RETRY_SECONDS)
+                    self.pending[job_id] = now + RETRY_SECONDS
                 self.next_reconcile[job_id] = now + RETRY_SECONDS
                 continue
             if queued:
                 self.next_reconcile[job_id] = now + RECONCILE_SECONDS
             else:
                 with self.pending_lock:
-                    self.pending.setdefault(job_id, now + RETRY_SECONDS)
+                    self.pending[job_id] = now + RETRY_SECONDS
                 self.next_reconcile[job_id] = now + RETRY_SECONDS
 
     def heartbeat(self):
