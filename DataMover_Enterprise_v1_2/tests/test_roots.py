@@ -270,6 +270,43 @@ def test_pause_holds_queued_replication_until_resume(roots_db):
             main.ACTIVE.discard(jid)
 
 
+def test_pause_active_run_and_stop_resumed_run(roots_db, monkeypatch):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Migration', source=r'\\FS01\Shares\Finance', destination=r'\\FS02\Shares\Finance',
+    ))
+    jid = job['id']
+    run_id = main.submit(jid, 'sync')['run_id']
+    assert main.claim_next_run()['id'] == run_id
+    assert main.control_run(jid, run_id, 'pause')['status'] == 'running'
+    terminated = threading.Event()
+
+    class Process:
+        @property
+        def stdout(self):
+            assert terminated.wait(5)
+            return []
+
+        def terminate(self):
+            terminated.set()
+
+        def wait(self):
+            return 1
+
+    monkeypatch.setattr(main.engine, 'command', lambda *args, **kwargs: ['robocopy.exe'])
+    monkeypatch.setattr(main.subprocess, 'Popen', lambda *args, **kwargs: Process())
+    main.run_job(jid, 'sync', run_id)
+    assert terminated.is_set()
+    assert main.get_job(jid)['status'] == 'paused'
+    assert main.control_run(jid, run_id, 'resume')['status'] == 'queued'
+    resumed = main.sql('SELECT MAX(id) AS id FROM runs WHERE job_id=?', (jid,), one=True)['id']
+    with pytest.raises(HTTPException) as stale:
+        main.control_run(jid, run_id, 'stop')
+    assert stale.value.status_code == 409
+    assert main.control_run(jid, resumed, 'stop')['status'] == 'stopped'
+    assert main.claim_next_run() is None
+
+
 def test_editing_job_resets_readiness_and_cutover_attestations(roots_db):
     main = roots_db
     job = main.create_job(main.JobIn(

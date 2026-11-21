@@ -212,6 +212,8 @@ def init_db():
         run_columns = {row['name'] for row in db.execute('PRAGMA table_info(runs)')}
         if 'automatic_replication' not in run_columns:
             db.execute('ALTER TABLE runs ADD COLUMN automatic_replication INTEGER NOT NULL DEFAULT 0')
+        if 'interrupt_action' not in run_columns:
+            db.execute('ALTER TABLE runs ADD COLUMN interrupt_action TEXT')
         columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
         for name, definition in (
             ('schedule_type', "TEXT NOT NULL DEFAULT 'manual'"),
@@ -289,7 +291,7 @@ def invalidate(jid):
 def submit(jid, mode, scheduled=False, *, automatic_replication=False):
     with LOCK:
         job = get_job(jid)
-        if jid in ACTIVE or job['status'] in ('queued', 'running'):
+        if jid in ACTIVE or job['status'] in ('queued', 'running', 'paused'):
             if scheduled:
                 if not automatic_replication:
                     event(jid, 'warning', 'Scheduled run skipped: job already running')
@@ -315,10 +317,10 @@ def submit(jid, mode, scheduled=False, *, automatic_replication=False):
             raise HTTPException(503, 'Replication worker is offline; start its Windows service before waiting for a run')
         with connect() as db:
             cursor = db.execute(
-                '''UPDATE jobs SET status=?,phase=?,last_error=NULL WHERE id=? AND status NOT IN (?,?)
+                '''UPDATE jobs SET status=?,phase=?,last_error=NULL WHERE id=? AND status NOT IN ('queued','running','paused')
                    AND (NOT ? OR (schedule_type='continuous' AND continuous_ready=1
                                   AND replication_paused=0 AND frozen=0 AND handoff=0))''',
-                ('queued', mode, jid, 'queued', 'running', automatic_replication),
+                ('queued', mode, jid, automatic_replication),
             )
             run_id = None
             if cursor.rowcount == 1:
@@ -344,7 +346,7 @@ def wait_for_run(jid, run_id):
         run = sql('SELECT status FROM runs WHERE id=? AND job_id=?', (run_id, jid), one=True)
         if not run:
             raise HTTPException(500, 'Queued run record disappeared')
-        if run['status'] in ('success', 'failed'):
+        if run['status'] in ('success', 'failed', 'paused', 'stopped'):
             job = get_job(jid)
             return {
                 'accepted': True, 'queued': False, 'status': run['status'],
@@ -365,6 +367,8 @@ def claim_next_run():
         if not row:
             return None
         run_id, jid, mode = row
+        if jid in ACTIVE:
+            return None
         started = now()
         cursor = db.execute(
             "UPDATE runs SET status='running',started=?,summary=NULL WHERE id=? AND status='queued'",
@@ -388,6 +392,35 @@ def claim_next_run():
         ACTIVE.add(jid)
         return {'id': run_id, 'job_id': jid, 'mode': mode}
 
+def monitor_run_interrupt(proc, run_id, finished):
+    while not finished.is_set():
+        try:
+            run = sql('SELECT interrupt_action FROM runs WHERE id=?', (run_id,), one=True)
+            if run and run['interrupt_action']:
+                proc.terminate()
+                return
+        except (OSError, sqlite3.Error):
+            LOGGER.exception('Unable to interrupt run #%s', run_id)
+        finished.wait(1)
+
+
+def finish_run(jid, run_id, status, code, summary):
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        run = db.execute('SELECT interrupt_action FROM runs WHERE id=?', (run_id,)).fetchone()
+        action = run['interrupt_action'] if run else None
+        if action:
+            status = 'paused' if action == 'pause' else 'stopped'
+            summary = f'Run {status} by operator. Files already copied remain at the destination.'
+            code = None
+        db.execute('UPDATE runs SET finished=?,status=?,exit_code=?,summary=? WHERE id=?',
+                   (now(), status, code, summary, run_id))
+        if action:
+            db.execute('UPDATE jobs SET status=?,last_exit=NULL,last_finished=?,last_error=NULL,final_verified=0 WHERE id=?',
+                       (status, now(), jid))
+    return action
+
+
 def run_job(jid, mode, run_id):
     log_path = None
     try:
@@ -407,19 +440,30 @@ def run_job(jid, mode, run_id):
         # No shell, no user-controlled switches. Output goes to a bounded in-memory tail.
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        finished = threading.Event()
+        monitor = threading.Thread(target=monitor_run_interrupt, args=(proc, run_id, finished), daemon=True)
+        monitor.start()
         tail = []
-        for line in proc.stdout:
-            line = line.rstrip()
-            if line:
-                tail.append(line[-500:])
-                if len(tail) > 30:
-                    tail.pop(0)
-        code = proc.wait()
+        try:
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    tail.append(line[-500:])
+                    if len(tail) > 30:
+                        tail.pop(0)
+            code = proc.wait()
+        except Exception:
+            proc.terminate()
+            proc.wait()
+            raise
+        finally:
+            finished.set()
+            monitor.join()
         ok = engine.exit_success(code)
         status = 'success' if ok else 'failed'
         summary = '\n'.join(tail[-15:])[-5000:]
-        sql('UPDATE runs SET finished=?,status=?,exit_code=?,summary=? WHERE id=?',
-            (now(), status, code, summary, run_id))
+        if finish_run(jid, run_id, status, code, summary):
+            return
         sql('UPDATE jobs SET status=?,phase=?,last_exit=?,last_finished=?,last_error=? WHERE id=?',
             (status, mode, code, now(), None if ok else f'Robocopy exit code {code}', jid))
         if ok:
@@ -444,9 +488,9 @@ def run_job(jid, mode, run_id):
             level = 'error' if not ok else 'warning' if automatic_replication and code & 6 else 'info'
             event(jid, level, f'{mode} {status}; Robocopy exit={code}. See run log.')
     except Exception as exc:
+        if run_id and finish_run(jid, run_id, 'failed', None, str(exc)[:500]):
+            return
         sql('UPDATE jobs SET status=?,last_finished=?,last_error=? WHERE id=?', ('failed', now(), str(exc)[:500], jid))
-        if run_id:
-            sql('UPDATE runs SET finished=?,status=?,summary=? WHERE id=?', (now(), 'failed', str(exc)[:500], run_id))
         event(jid, 'error', f'{mode} failed: {exc}')
     finally:
         with LOCK:
@@ -938,7 +982,7 @@ def remove_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
         if len(roots) == 1:
             raise HTTPException(409, 'At least one approved root must remain')
         remaining_roots = [path for path in roots if path.casefold() != root.casefold()]
-        running_jobs = sql("SELECT id,source,destination FROM jobs WHERE status IN ('queued','running')")
+        running_jobs = sql("SELECT id,source,destination FROM jobs WHERE status IN ('queued','running','paused')")
         for job in running_jobs:
             try:
                 engine.validate_pair(job['source'], job['destination'], remaining_roots)
@@ -979,7 +1023,7 @@ def update_job(jid: int, data: JobIn):
         job = get_job(jid)
         if job['handoff']:
             raise HTTPException(409, 'Handed-off jobs cannot be edited')
-        if jid in ACTIVE or job['status'] in ('queued', 'running'):
+        if jid in ACTIVE or job['status'] in ('queued', 'running', 'paused'):
             raise HTTPException(409, 'Queued or running jobs cannot be edited')
         try:
             src, dst = engine.validate_pair(data.source, data.destination, root_paths())
@@ -1033,6 +1077,40 @@ def run(jid: int, mode: str):
         raise HTTPException(422, 'Unsupported mode')
     return {**submit(jid, mode), 'mode': mode}
 
+@app.post('/api/jobs/{jid}/runs/{run_id}/{action}', dependencies=[Depends(require_auth), Depends(require_csrf)])
+def control_run(jid: int, run_id: int, action: str):
+    if action not in ('pause', 'stop', 'resume'):
+        raise HTTPException(422, 'Unsupported run action')
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        job = db.execute('SELECT status,schedule_type,continuous_ready FROM jobs WHERE id=?', (jid,)).fetchone()
+        if not job:
+            raise HTTPException(404, 'Job not found')
+        run = db.execute('SELECT * FROM runs WHERE job_id=? ORDER BY id DESC LIMIT 1', (jid,)).fetchone()
+        allowed = {'pause': ('queued', 'running'), 'stop': ('queued', 'running', 'paused'), 'resume': ('paused',)}
+        if not run or run['id'] != run_id or run['status'] != job['status'] or run['status'] not in allowed[action]:
+            raise HTTPException(409, 'The job is no longer in a state that supports this action')
+        if run['status'] == 'running':
+            if run['interrupt_action'] and (action != 'stop' or run['interrupt_action'] == 'stop'):
+                return {'status': 'running'}
+            db.execute('UPDATE runs SET interrupt_action=? WHERE id=?', (action, run['id']))
+            status = 'running'
+        elif action == 'resume':
+            status = 'queued'
+            db.execute('INSERT INTO runs(job_id,mode,started,status,summary) VALUES(?,?,?,?,?)',
+                       (jid, run['mode'], now(), status, f'Resumed from run #{run["id"]}'))
+            db.execute('UPDATE jobs SET status=?,replication_paused=0 WHERE id=?', (status, jid))
+        else:
+            status = 'paused' if action == 'pause' else 'stopped'
+            db.execute('UPDATE runs SET status=?,finished=?,summary=? WHERE id=?',
+                       (status, now(), f'Run {status} by operator.', run['id']))
+            db.execute('UPDATE jobs SET status=?,last_finished=?,last_exit=NULL,last_error=NULL WHERE id=?',
+                       (status, now(), jid))
+        if action != 'resume' and job['schedule_type'] == 'continuous' and job['continuous_ready']:
+            db.execute('UPDATE jobs SET replication_paused=1 WHERE id=?', (jid,))
+    event(jid, 'info', f'Operator requested {action} for run #{run["id"]}')
+    return {'status': status}
+
 @app.post('/api/jobs/{jid}/replication/{action}', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def set_replication_pause(jid: int, action: str):
     if action not in ('pause', 'resume'):
@@ -1055,7 +1133,7 @@ def set_replication_pause(jid: int, action: str):
 @app.post('/api/jobs/{jid}/validate', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def validate(jid: int, data: Confirmation):
     job = get_job(jid)
-    if jid in ACTIVE or job['status'] in ('queued', 'running') or not job['dry_run_ok'] or not data.confirmed:
+    if jid in ACTIVE or job['status'] in ('queued', 'running', 'paused') or not job['dry_run_ok'] or not data.confirmed:
         raise HTTPException(409, 'Complete a successful dry-run and explicitly confirm external ACL/data checks')
     sql('UPDATE jobs SET validated=1 WHERE id=?', (jid,))
     event(jid, 'warning', 'Operator attested validation: ' + data.note)
@@ -1064,7 +1142,7 @@ def validate(jid: int, data: Confirmation):
 @app.post('/api/jobs/{jid}/freeze', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def freeze(jid: int, data: Confirmation):
     job = get_job(jid)
-    if jid in ACTIVE or job['status'] in ('queued', 'running') or not job['validated'] or not data.confirmed:
+    if jid in ACTIVE or job['status'] in ('queued', 'running', 'paused') or not job['validated'] or not data.confirmed:
         raise HTTPException(409, 'Validation and explicit source-write-freeze confirmation required')
     sql('UPDATE jobs SET frozen=1 WHERE id=?', (jid,))
     event(jid, 'warning', 'Operator confirmed source writes frozen: ' + data.note)
@@ -1073,7 +1151,7 @@ def freeze(jid: int, data: Confirmation):
 @app.post('/api/jobs/{jid}/approve', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def approve(jid: int, data: Confirmation):
     job = get_job(jid)
-    if jid in ACTIVE or job['status'] in ('queued', 'running') or not (
+    if jid in ACTIVE or job['status'] in ('queued', 'running', 'paused') or not (
         job['validated'] and job['frozen'] and data.confirmed
     ):
         raise HTTPException(409, 'Job must be idle; validation, freeze, and approval confirmation are required')
@@ -1085,7 +1163,7 @@ def approve(jid: int, data: Confirmation):
 def verify_final(jid: int, data: Confirmation):
     job = get_job(jid)
     last = sql('SELECT * FROM runs WHERE job_id=? AND mode=? ORDER BY id DESC LIMIT 1', (jid, 'final'), one=True)
-    if jid in ACTIVE or job['status'] in ('queued', 'running') or not last or last['status'] != 'success' or not data.confirmed:
+    if jid in ACTIVE or job['status'] in ('queued', 'running', 'paused') or not last or last['status'] != 'success' or not data.confirmed:
         raise HTTPException(409, 'Successful final sync and explicit independent verification required')
     sql('UPDATE jobs SET final_verified=1 WHERE id=?', (jid,))
     event(jid, 'warning', 'Operator attested independent final verification: ' + data.note)
@@ -1094,7 +1172,7 @@ def verify_final(jid: int, data: Confirmation):
 @app.post('/api/jobs/{jid}/handoff', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def handoff(jid: int, data: Confirmation):
     job = get_job(jid)
-    if jid in ACTIVE or job['status'] in ('queued', 'running') or not job['final_verified'] or not data.confirmed:
+    if jid in ACTIVE or job['status'] in ('queued', 'running', 'paused') or not job['final_verified'] or not data.confirmed:
         raise HTTPException(409, 'Independent final verification and handoff confirmation required')
     sql('UPDATE jobs SET handoff=1,status=? WHERE id=?', ('handed-off', jid))
     schedule(get_job(jid))

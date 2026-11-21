@@ -134,7 +134,7 @@ class ReplicationWorker:
         now = time.monotonic()
         for job_id in list(self.observers):
             job = main.get_job(job_id)
-            if job['status'] in ('queued', 'running'):
+            if job['status'] in ('queued', 'running', 'paused'):
                 continue
             if job['last_finished']:
                 finished = datetime.fromisoformat(job['last_finished']).timestamp()

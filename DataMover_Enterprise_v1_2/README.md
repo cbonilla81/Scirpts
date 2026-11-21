@@ -66,6 +66,8 @@ Migration jobs can be edited while idle. Queued, running, and handed-off jobs ca
 
 Select **Pause replication** on an initialized continuous job to stop automatic passes. An active run finishes, and any queued automatic run waits until **Resume replication**. The pause survives service restarts. Resuming restarts source watching and triggers reconciliation, subject to the normal cooldown and worker availability.
 
+Use **Pause run** or **Stop run** in the selected job panel to interrupt a running copy or hold or cancel a queued run, including the initial sync. Both actions leave copied files in place and pause automatic watching for initialized continuous jobs. **Resume run** queues a fresh Robocopy pass for the same operation and keeps the interrupted pass in run history. **Stop run** ends the selected run. Future calendar schedules remain configured.
+
 **Manual run response** only controls whether the browser request waits for the worker result or returns after queueing; it does not control replication frequency. Long waits can exceed browser or proxy timeouts. Times for one-time and recurring jobs use `DATAMOVER_TZ`; monthly days 29–31 are skipped in months without that day. Existing five-field cron schedules continue to work. The single API instance schedules dated/recurring triggers; start only **one** Uvicorn worker. Do not run multiple API replicas against the same SQLite file.
 
 ## Cutover
