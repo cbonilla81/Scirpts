@@ -1171,7 +1171,7 @@
         const methods = await api('/auth/methods');
         $('authProvider').replaceChildren();
         if (methods.local) $('authProvider').add(new Option('Local username and password', 'local'));
-        if (methods.ad) $('authProvider').add(new Option('Active Directory (LDAP StartTLS)', 'ad'));
+        if (methods.ad) $('authProvider').add(new Option('Active Directory', 'ad'));
         $('entraButton').hidden = !methods.entra || methods.setup_required;
         $('loginForm').hidden = methods.setup_required;
         $('setupForm').hidden = !methods.setup_required;
@@ -1315,7 +1315,7 @@
       const methods = await api('/auth/methods');
       const provider = $('authProvider');
       const adOption = Array.from(provider.options).find(option => option.value === 'ad');
-      if (methods.ad && !adOption) provider.add(new Option('Active Directory (LDAP StartTLS)', 'ad'));
+      if (methods.ad && !adOption) provider.add(new Option('Active Directory', 'ad'));
       else if (!methods.ad && adOption) adOption.remove();
       $('providerField').hidden = provider.options.length < 2;
     }
