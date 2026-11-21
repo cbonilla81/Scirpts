@@ -118,7 +118,8 @@ class ReplicationWorker:
 
     def reconcile_watches(self):
         jobs = main.sql(
-            "SELECT * FROM jobs WHERE schedule_type='continuous' AND continuous_ready=1 AND frozen=0 AND handoff=0"
+            "SELECT * FROM jobs WHERE schedule_type='continuous' AND continuous_ready=1 "
+            "AND replication_paused=0 AND frozen=0 AND handoff=0"
         )
         active = {job['id']: main.decode_job(job) for job in jobs}
         for job_id in set(self.observers) - set(active):

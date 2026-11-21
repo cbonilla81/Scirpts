@@ -64,6 +64,8 @@ Jobs can run manually, once at a selected date/time, daily, weekly, monthly, or 
 
 Migration jobs can be edited while idle. Queued, running, and handed-off jobs cannot be changed. Saving an edit clears prior Dry-Run, validation, freeze, approval, final-verification, and continuous-readiness state; repeat the required checks before operating the updated job.
 
+Select **Pause replication** on an initialized continuous job to stop automatic passes. An active run finishes, and any queued automatic run waits until **Resume replication**. The pause survives service restarts. Resuming restarts source watching and triggers reconciliation, subject to the normal cooldown and worker availability.
+
 **Manual run response** only controls whether the browser request waits for the worker result or returns after queueing; it does not control replication frequency. Long waits can exceed browser or proxy timeouts. Times for one-time and recurring jobs use `DATAMOVER_TZ`; monthly days 29–31 are skipped in months without that day. Existing five-field cron schedules continue to work. The single API instance schedules dated/recurring triggers; start only **one** Uvicorn worker. Do not run multiple API replicas against the same SQLite file.
 
 ## Cutover

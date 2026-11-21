@@ -243,6 +243,33 @@ def test_automatic_replication_records_only_actionable_activity(roots_db, monkey
     assert main.sql('SELECT exit_code FROM runs WHERE id=?', (run['id'],), one=True)['exit_code'] == code
 
 
+def test_pause_holds_queued_replication_until_resume(roots_db):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Continuous migration',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+        schedule_type='continuous',
+    ))
+    jid = job['id']
+    main.sql('UPDATE jobs SET continuous_ready=1,dry_run_ok=1 WHERE id=?', (jid,))
+    queued = main.submit(jid, 'sync', scheduled=True, automatic_replication=True)
+
+    assert main.set_replication_pause(jid, 'pause')['replication_paused'] is True
+    assert main.continuous_job_status(True)[0]['state'] == 'paused'
+    assert main.claim_next_run() is None
+    assert main.get_job(jid)['status'] == 'queued'
+
+    assert main.set_replication_pause(jid, 'resume')['replication_paused'] is False
+    try:
+        assert main.claim_next_run()['id'] == queued['run_id']
+        assert main.set_replication_pause(jid, 'pause')['replication_paused'] is True
+        assert main.get_job(jid)['status'] == 'running'
+    finally:
+        with main.LOCK:
+            main.ACTIVE.discard(jid)
+
+
 def test_editing_job_resets_readiness_and_cutover_attestations(roots_db):
     main = roots_db
     job = main.create_job(main.JobIn(

@@ -439,6 +439,7 @@
               <div class="action-row">
                 <button class="button" id="dryRunButton" type="button" disabled>Dry-Run</button>
                 <button class="button primary" id="syncButton" type="button" disabled>Run sync</button>
+                <button class="button" id="replicationPauseButton" type="button" hidden>Pause replication</button>
                 <button class="button" id="editJobButton" type="button" disabled>Edit job</button>
                 <button class="button warning" id="finalButton" type="button" disabled>Final sync</button>
                 <button class="button" id="rollbackButton" type="button" disabled>Rollback plan</button>
@@ -573,6 +574,7 @@
     let selectedEvents = [];
     let refreshBusy = false;
     let refreshAgain = false;
+    let replicationPauseBusy = false;
     let toastTimer;
     const $ = id => document.getElementById(id);
     class ApiError extends Error {
@@ -587,6 +589,7 @@
     function scheduleLabel(job) {
       if (job.schedule_type === 'continuous') {
         if (demoMode) return 'Continuous · simulated';
+        if (job.replication_paused) return 'Continuous · paused';
         if (job.continuous_ready) return 'Continuous · monitoring';
         return job.dry_run_ok
           ? 'Continuous · ready for initial sync'
@@ -680,7 +683,8 @@
         replication_worker_online: true,
         continuous_jobs: demoJobs.filter(job => job.schedule_type === 'continuous').map(job => ({
           id: job.id, name: job.name,
-          state: job.continuous_ready ? 'watching' : job.dry_run_ok ? 'initial-sync-required' : 'dry-run-required',
+          state: job.frozen ? 'frozen' : job.replication_paused ? 'paused' :
+            job.continuous_ready ? 'watching' : job.dry_run_ok ? 'initial-sync-required' : 'dry-run-required',
           dry_run_ok: Boolean(job.dry_run_ok), continuous_ready: Boolean(job.continuous_ready),
           run_status: job.status, last_exit: job.last_exit, last_finished: job.last_finished, last_error: null
         }))
@@ -728,11 +732,21 @@
         if (!job) throw new ApiError(404, 'Job not found');
         if (job.status === 'queued' || job.status === 'running' || job.handoff) throw new ApiError(409, 'This demo job cannot be edited right now');
         Object.assign(job, body, {
-          status: 'idle', phase: 'created', dry_run_ok: 0, continuous_ready: 0,
+          status: 'idle', phase: 'created', dry_run_ok: 0, continuous_ready: 0, replication_paused: 0,
           validated: 0, frozen: 0, approved: 0, final_verified: 0, handoff: 0,
           last_exit: null, last_started: null, last_finished: null
         });
         return { ...job };
+      }
+      const replicationMatch = path.match(/^\/jobs\/(\d+)\/replication\/(pause|resume)$/);
+      if (replicationMatch && method === 'POST') {
+        const job = demoJobs.find(item => item.id === Number(replicationMatch[1]));
+        if (!job) throw new ApiError(404, 'Job not found');
+        if (job.schedule_type !== 'continuous' || !job.continuous_ready || job.frozen || job.handoff) {
+          throw new ApiError(409, 'Pause and resume require an initialized continuous job before source freeze or handoff');
+        }
+        job.replication_paused = replicationMatch[2] === 'pause';
+        return { replication_paused: job.replication_paused };
       }
       const historyMatch = path.match(/^\/jobs\/(\d+)\/(events|runs)$/);
       if (historyMatch && method === 'GET') {
@@ -870,6 +884,7 @@
       return ({
         watching: 'Watching source',
         syncing: 'Syncing',
+        paused: 'Paused',
         queued: 'Queued',
         starting: 'Starting watcher',
         error: 'Watcher error',
@@ -983,6 +998,10 @@
       $('syncButton').textContent = job.schedule_type === 'continuous' && !job.continuous_ready
         ? 'Start replication' : 'Run sync';
       $('syncButton').disabled = busy || handedOff || Boolean(job.frozen) || continuousNeedsPreflight;
+      const pauseButton = $('replicationPauseButton');
+      pauseButton.hidden = job.schedule_type !== 'continuous' || !job.continuous_ready || job.frozen || handedOff;
+      pauseButton.disabled = replicationPauseBusy;
+      pauseButton.textContent = job.replication_paused ? 'Resume replication' : 'Pause replication';
       $('editJobButton').disabled = busy || handedOff;
       $('finalButton').disabled = busy || handedOff || !(job.dry_run_ok && job.validated && job.frozen && job.approved);
       $('rollbackButton').disabled = false;
@@ -995,6 +1014,7 @@
     function renderSelected() {
       const job = jobs.find(item => item.id === selectedId);
       if (!job) {
+        $('replicationPauseButton').hidden = true;
         $('selectedJob').innerHTML = '<div class="panel-sub">Select a job to see its details.</div>';
         $('eventsList').innerHTML = '<div class="panel-sub">Select a job to load event history.</div>';
         $('runList').innerHTML = '<div class="panel-sub">Select a job to load runs.</div>';
@@ -1324,6 +1344,23 @@
       else if (!methods.ad && adOption) adOption.remove();
       $('providerField').hidden = provider.options.length < 2;
     }
+    async function toggleReplicationPause() {
+      const job = jobs.find(item => item.id === selectedId);
+      if (!job || replicationPauseBusy) return;
+      const action = job.replication_paused ? 'resume' : 'pause';
+      replicationPauseBusy = true;
+      $('replicationPauseButton').disabled = true;
+      try {
+        const result = await api('/jobs/' + job.id + '/replication/' + action, 'POST');
+        job.replication_paused = result.replication_paused;
+        showNotice(result.replication_paused ? 'Automatic replication paused. Any active copy can finish.' : 'Automatic replication resumed.');
+        await refresh();
+      } catch (error) { showNotice(error.message, true); }
+      finally {
+        replicationPauseBusy = false;
+        $('replicationPauseButton').disabled = false;
+      }
+    }
     async function runAction(mode) {
       if (selectedId === null) return;
       if (mode === 'final' && !confirm('Confirm source writes are externally frozen and final sync is approved. Run Final Sync?')) return;
@@ -1485,6 +1522,7 @@
       } catch (error) { showUsersError(error.message); }
     });
     $('inspectButton').addEventListener('click', refresh);
+    $('replicationPauseButton').addEventListener('click', toggleReplicationPause);
     $('allEventsButton').addEventListener('click', refresh);
     $('jobFilter').addEventListener('change', renderJobs);
     $('newJobButton').addEventListener('click', openModal);

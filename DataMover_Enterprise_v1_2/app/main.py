@@ -148,7 +148,7 @@ def replication_worker_online():
 def continuous_job_status(worker_online):
     rows = sql(
         '''SELECT j.id,j.name,j.status,j.phase,j.last_exit,j.last_finished,j.last_error,
-                  j.dry_run_ok,j.continuous_ready,j.frozen,j.handoff,
+                  j.dry_run_ok,j.continuous_ready,j.replication_paused,j.frozen,j.handoff,
                   w.status AS watcher_status,w.error AS watcher_error
            FROM jobs j LEFT JOIN worker_watchers w ON w.job_id=j.id
            WHERE j.schedule_type='continuous' ORDER BY j.id'''
@@ -159,6 +159,8 @@ def continuous_job_status(worker_online):
             state = 'handed-off'
         elif job['frozen']:
             state = 'frozen'
+        elif job['replication_paused']:
+            state = 'paused'
         elif not job['continuous_ready'] and not job['dry_run_ok']:
             state = 'dry-run-required'
         elif not job['continuous_ready']:
@@ -219,6 +221,7 @@ def init_db():
             ('schedule_day', 'INTEGER'),
             ('execution_mode', "TEXT NOT NULL DEFAULT 'async'"),
             ('continuous_ready', 'INTEGER NOT NULL DEFAULT 0'),
+            ('replication_paused', 'INTEGER NOT NULL DEFAULT 0'),
         ):
             if name not in columns:
                 db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
@@ -313,7 +316,8 @@ def submit(jid, mode, scheduled=False, *, automatic_replication=False):
         with connect() as db:
             cursor = db.execute(
                 '''UPDATE jobs SET status=?,phase=?,last_error=NULL WHERE id=? AND status NOT IN (?,?)
-                   AND (NOT ? OR (schedule_type='continuous' AND continuous_ready=1 AND frozen=0 AND handoff=0))''',
+                   AND (NOT ? OR (schedule_type='continuous' AND continuous_ready=1
+                                  AND replication_paused=0 AND frozen=0 AND handoff=0))''',
                 ('queued', mode, jid, 'queued', 'running', automatic_replication),
             )
             run_id = None
@@ -352,8 +356,11 @@ def claim_next_run():
     with LOCK, connect() as db:
         if len(ACTIVE) >= MAX_WORKERS:
             return None
+        db.execute('BEGIN IMMEDIATE')
         row = db.execute(
-            "SELECT id,job_id,mode FROM runs WHERE status='queued' ORDER BY id LIMIT 1"
+            '''SELECT r.id,r.job_id,r.mode FROM runs r JOIN jobs j ON j.id=r.job_id
+               WHERE r.status='queued' AND (r.automatic_replication=0 OR j.replication_paused=0)
+               ORDER BY r.id LIMIT 1'''
         ).fetchone()
         if not row:
             return None
@@ -985,7 +992,7 @@ def update_job(jid: int, data: JobIn):
         sql(
             '''UPDATE jobs SET name=?,source=?,destination=?,cron=?,threads=?,schedule_type=?,
                scheduled_at=?,schedule_time=?,schedule_days=?,schedule_day=?,execution_mode=?,
-               status='idle',phase='created',dry_run_ok=0,validated=0,continuous_ready=0,
+               status='idle',phase='created',dry_run_ok=0,validated=0,continuous_ready=0,replication_paused=0,
                frozen=0,approved=0,final_verified=0,last_exit=NULL,last_started=NULL,
                last_finished=NULL,last_error=NULL WHERE id=?''',
             (data.name, src, dst, cron, data.threads, data.schedule_type,
@@ -1025,6 +1032,25 @@ def run(jid: int, mode: str):
     if mode not in ('dry-run', 'sync', 'final'):
         raise HTTPException(422, 'Unsupported mode')
     return {**submit(jid, mode), 'mode': mode}
+
+@app.post('/api/jobs/{jid}/replication/{action}', dependencies=[Depends(require_auth), Depends(require_csrf)])
+def set_replication_pause(jid: int, action: str):
+    if action not in ('pause', 'resume'):
+        raise HTTPException(422, 'Unsupported replication action')
+    paused = action == 'pause'
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        job = db.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
+        if not job:
+            raise HTTPException(404, 'Job not found')
+        if job['schedule_type'] != 'continuous' or not job['continuous_ready'] or job['frozen'] or job['handoff']:
+            raise HTTPException(409, 'Pause and resume require an initialized continuous job before source freeze or handoff')
+        changed = bool(job['replication_paused']) != paused
+        if changed:
+            db.execute('UPDATE jobs SET replication_paused=? WHERE id=?', (paused, jid))
+    if changed:
+        event(jid, 'info', 'Continuous replication paused by operator' if paused else 'Continuous replication resumed by operator')
+    return {'replication_paused': paused}
 
 @app.post('/api/jobs/{jid}/validate', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def validate(jid: int, data: Confirmation):
