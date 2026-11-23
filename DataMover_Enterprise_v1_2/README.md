@@ -86,10 +86,13 @@ Use **Pause run** or **Stop run** in the selected job panel to interrupt a runni
 - Bind to `127.0.0.1` by default; use a vetted TLS reverse proxy for remote access and set `DATAMOVER_COOKIE_SECURE=true`. Local, Active Directory and Entra ID sign-ins expire 30 minutes after login by default, even while active. Set `DATAMOVER_SESSION_TIMEOUT_MINUTES` in the API `.env` and restart the API to change the timeout. Browsers normally discard the session cookie when fully closed. To require a fresh login on reopen, disable browser session restore on managed browsers, since it can restore unexpired session cookies. Mutations require CSRF protection. The application does not provide granular job-level RBAC.
 - Approved source/destination roots are enforced; any signed-in user can add or remove roots in the UI, so root management expands or restricts the network paths available to all users. Path traversal, nested paths, unsafe switches, and arbitrary command execution are blocked.
 - Only Windows can run Robocopy. Network shares must be reachable under the **worker service account**.
+- **Stop run** shows **Stopping** until the worker confirms the copy has ended. A copy interrupted by the worker ends as **Stopped**. A queued run stopped before it starts ends as **Cancelled**. Copy errors and runs interrupted by a worker shutdown are reported as **Failed**.
+- Select an inactive migration and choose **Delete job** to remove its schedule, run history, and events. Source and destination files are preserved. Stop queued, running, or paused runs before deleting their job.
 - Recent runs shows whether a job is waiting for a worker slot and when its Robocopy log last changed. A large file may copy without recent log output. The dashboard does not estimate byte-level completion or ETA.
+- On startup and hourly, the replication worker removes Robocopy logs and rotated worker logs whose last modification is more than seven days old. Active copy logs are held until the run ends. Run and event records remain available after log cleanup.
 - Operator attestations are not automated integrity verification. No automatic NTFS ACL diff, hash compare, share ACL export, DFS/DNS switch, backup, general failed-run retry policy, or rollback execution.
 - SQLite is suitable for a single-host pilot. Use an external database and distributed queue before production multiworker operation.
-- Running a service under a user account, log rotation, service recovery, security event forwarding, and backups require deployment-specific configuration.
+- Running a service under a user account, rotation for externally captured web service logs, service recovery, security event forwarding, and backups require deployment-specific configuration.
 - Run tests with `.\.venv\Scripts\python.exe -m pytest -q`. Python unit tests can run on non-Windows with mocked executable detection.
 
 ## API endpoints

@@ -443,6 +443,7 @@
                 <button class="button" id="pauseRunButton" type="button" hidden>Pause run</button>
                 <button class="button warning" id="stopRunButton" type="button" hidden>Stop run</button>
                 <button class="button" id="editJobButton" type="button" disabled>Edit job</button>
+                <button class="button warning" id="deleteJobButton" type="button" hidden>Delete job</button>
                 <button class="button warning" id="finalButton" type="button" disabled>Final sync</button>
                 <button class="button" id="rollbackButton" type="button" disabled>Rollback plan</button>
               </div>
@@ -578,6 +579,7 @@
     let refreshAgain = false;
     let replicationPauseBusy = false;
     let runControlBusy = false;
+    let deleteJobBusy = false;
     let toastTimer;
     const $ = id => document.getElementById(id);
     class ApiError extends Error {
@@ -588,8 +590,15 @@
     })[char]);
     const statusLabels = {
       idle: 'Idle', queued: 'Queued', running: 'Running', paused: 'Paused', stopped: 'Stopped',
+      stopping: 'Stopping', pausing: 'Pausing', cancelled: 'Cancelled',
       success: 'Succeeded', failed: 'Failed', 'handed-off': 'Handed off'
     };
+    function displayStatus(item) {
+      if (item.status === 'running' && item.interrupt_action) {
+        return item.interrupt_action === 'stop' ? 'stopping' : 'pausing';
+      }
+      return item.status;
+    }
     function scheduleLabel(job) {
       if (job.schedule_type === 'continuous') {
         if (demoMode) return 'Continuous · simulated';
@@ -956,7 +965,7 @@
         <tr data-id="${Number(job.id)}" class="${job.id === selectedId ? 'selected' : ''}" tabindex="0" aria-label="Select ${escapeHtml(job.name)}">
           <td><div class="job-name">${escapeHtml(job.name)}</div><div class="job-id">Job #${Number(job.id)}</div></td>
           <td><div class="route" title="${escapeHtml(job.source)} → ${escapeHtml(job.destination)}">${escapeHtml(job.source)} → ${escapeHtml(job.destination)}</div></td>
-          <td><span class="status ${statusClass(job.status)}">${escapeHtml(statusLabels[job.status] || job.status)}</span></td>
+          <td><span class="status ${statusClass(job.status)}">${escapeHtml(statusLabels[displayStatus(job)] || job.status)}</span></td>
           <td>${escapeHtml(job.phase || 'created')}</td>
           <td>${escapeHtml(job.last_exit ?? '—')}</td>
         </tr>`).join('');
@@ -1012,6 +1021,8 @@
       $('stopRunButton').disabled = runControlBusy || activeRun?.interrupt_action === 'stop';
       $('pauseRunButton').textContent = job.status === 'paused' ? 'Resume run' : 'Pause run';
       $('editJobButton').disabled = busy || handedOff;
+      $('deleteJobButton').hidden = demoMode;
+      $('deleteJobButton').disabled = busy || deleteJobBusy;
       $('finalButton').disabled = busy || handedOff || !(job.dry_run_ok && job.validated && job.frozen && job.approved);
       $('rollbackButton').disabled = false;
       $('validateButton').disabled = busy || !job.dry_run_ok || Boolean(job.validated) || handedOff;
@@ -1025,6 +1036,7 @@
       if (!job) {
         $('replicationPauseButton').hidden = true;
         $('pauseRunButton').hidden = $('stopRunButton').hidden = true;
+        $('deleteJobButton').hidden = true;
         $('selectedJob').innerHTML = '<div class="panel-sub">Select a job to see its details.</div>';
         $('eventsList').innerHTML = '<div class="panel-sub">Select a job to load event history.</div>';
         $('runList').innerHTML = '<div class="panel-sub">Select a job to load runs.</div>';
@@ -1034,7 +1046,7 @@
       $('selectedJob').innerHTML = `
         <div class="selected-title">
           <div><strong>${escapeHtml(job.name)}</strong><small>Job #${Number(job.id)} · Updated ${escapeHtml(formatTime(job.last_finished || job.last_started || job.created))}</small></div>
-          <span class="status ${statusClass(job.status)}">${escapeHtml(statusLabels[job.status] || job.status)}</span>
+          <span class="status ${statusClass(job.status)}">${escapeHtml(statusLabels[displayStatus(job)] || job.status)}</span>
         </div>
         <div class="endpoints">
           <div class="endpoint"><div class="endpoint-label">Source</div><div class="endpoint-value" title="${escapeHtml(job.source)}">${escapeHtml(job.source)}</div></div>
@@ -1043,9 +1055,10 @@
         <div class="meta-row"><span>Engine</span><strong>Robocopy · ${Number(job.threads || 16)} threads</strong></div>
         <div class="meta-row"><span>Schedule</span><strong>${escapeHtml(scheduleLabel(job))}</strong></div>
         <div class="meta-row"><span>Manual run response</span><strong>${escapeHtml(executionModeLabel(job))}</strong></div>
-        <div class="meta-row"><span>Last run result</span><strong>${escapeHtml(job.last_exit === null ? 'No run recorded' : `Exit ${job.last_exit}`)}</strong></div>
+        <div class="meta-row"><span>Last run result</span><strong>${escapeHtml(job.last_error ||
+          (job.last_exit != null ? `Exit ${job.last_exit}` :
+            job.last_finished ? statusLabels[selectedRuns.find(run => run.finished)?.status] || 'Unavailable' : 'No run recorded'))}</strong></div>
         <div class="meta-row"><span>Data progress</span><strong>Not reported by this pilot</strong></div>`;
-      $('editJobButton').disabled = job.status === 'running' || job.status === 'queued' || Boolean(job.handoff);
       renderCutover(job);
       renderEvents();
       renderRuns();
@@ -1071,6 +1084,8 @@
         let activity = '';
         if (run.status === 'queued') {
           activity = 'Awaiting a worker slot';
+        } else if (run.status === 'running' && run.interrupt_action) {
+          activity = 'Waiting for the replication worker to confirm the copy has ended';
         } else if (run.status === 'running') {
           activity = run.log_updated ? `Last Robocopy log update: ${formatTime(run.log_updated)}` : 'Waiting for Robocopy log output';
           if (run.log_updated && Date.now() - Date.parse(run.log_updated) >= 120000) {
@@ -1078,7 +1093,7 @@
           }
         }
         return `
-        <div class="run"><strong>#${Number(run.id)} · ${escapeHtml(run.mode)} · ${escapeHtml(run.status)}</strong>
+        <div class="run"><strong>#${Number(run.id)} · ${escapeHtml(run.mode)} · ${escapeHtml(statusLabels[displayStatus(run)] || run.status)}</strong>
           <small>${escapeHtml(formatTime(run.started))} · Exit ${escapeHtml(run.exit_code ?? '—')}</small>
           ${activity ? `<small>${escapeHtml(activity)}</small>` : ''}
           <small>Log: ${escapeHtml(run.log_file || 'not available')}</small>
@@ -1101,12 +1116,12 @@
         $('completeJobs').textContent = String(jobs.filter(job => job.handoff).length).padStart(2, '0');
         $('totalJobs').textContent = String(jobs.length).padStart(2, '0');
         const needsWorker = jobs.some(job =>
-          job.status === 'queued' || (job.schedule_type === 'continuous' && !job.handoff && !job.frozen)
+          ['queued', 'running'].includes(job.status) || (job.schedule_type === 'continuous' && !job.handoff && !job.frozen)
         );
         const workerState = demoMode ? 'simulated' : health.replication_worker_online ? 'online' : 'offline';
         $('controllerMeta').textContent = `Engine: ${health.engine}${needsWorker ? ` · Replication worker ${workerState}` : ''}`;
         if (needsWorker && !health.replication_worker_online && !demoMode) {
-          showNotice('The replication worker is offline. Queued and continuous jobs will wait until its Windows service is running.', true);
+          showNotice('The replication worker is offline. Job progress and pending stop requests cannot be confirmed until the Windows service is running.', true);
         } else if ($('notice').textContent.startsWith('The replication worker is offline.')) {
           clearDetailMessage();
         }
@@ -1363,11 +1378,29 @@
       $('pauseRunButton').disabled = $('stopRunButton').disabled = true;
       try {
         const result = await api('/jobs/' + job.id + '/runs/' + run.id + '/' + action, 'POST');
-        showNotice(result.status === 'running' ? 'Request sent to the replication worker.' : 'Run ' + result.status + '.');
+        if (['stopping', 'pausing'].includes(result.status)) clearDetailMessage();
+        else showNotice('Run ' + result.status + '.');
         await refresh();
       } catch (error) { showNotice(error.message, true); }
       finally {
         runControlBusy = false;
+        renderSelected();
+      }
+    }
+    async function deleteSelectedJob() {
+      const job = jobs.find(item => item.id === selectedId);
+      if (!job || deleteJobBusy || ['queued', 'running', 'paused'].includes(job.status)) return;
+      if (!confirm(`Delete "${job.name}" and its run and event history? Source and destination files will remain.`)) return;
+      deleteJobBusy = true;
+      renderSelected();
+      try {
+        await api(`/jobs/${job.id}`, 'DELETE');
+        await refresh();
+        showNotice('Migration job deleted.');
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        deleteJobBusy = false;
         renderSelected();
       }
     }
@@ -1398,7 +1431,7 @@
         if (result.queued) showNotice(continuousStart
           ? `Initial sync queued for Job #${selectedId}. Continuous watching starts only after the sync succeeds.`
           : `${mode} queued for Job #${selectedId}.`);
-        else if (result.status === 'paused' || result.status === 'stopped') showNotice('Run ' + result.status + '.');
+        else if (['paused', 'stopped', 'cancelled'].includes(result.status)) showNotice('Run ' + result.status + '.');
         else if (result.status === 'failed') showNotice(result.error || `${mode} failed for Job #${selectedId}.`, true);
         else showNotice(continuousStart
           ? `Initial sync succeeded for Job #${selectedId}. Continuous watching will start shortly.`
@@ -1560,6 +1593,7 @@
     $('jobFilter').addEventListener('change', renderJobs);
     $('newJobButton').addEventListener('click', openModal);
     $('editJobButton').addEventListener('click', openEditJob);
+    $('deleteJobButton').addEventListener('click', deleteSelectedJob);
     function updateScheduleFields() {
       const type = $('scheduleType').value;
       const oneTime = type === 'once';

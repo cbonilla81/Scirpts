@@ -11,14 +11,16 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from itertools import chain
 from urllib.parse import urlsplit
 from uuid import UUID
 from typing import Literal
 from zoneinfo import ZoneInfo
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing, contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -89,16 +91,46 @@ AUTH_FAILURES = {}
 SETUP_TOKEN = None
 DUMMY_PASSWORD_HASH = None
 LOGGER = logging.getLogger('datamover.auth')
+BUSY_STATUSES = ('queued', 'running', 'paused')
+JOBS_WITH_INTERRUPT = """SELECT j.*, (
+    SELECT r.interrupt_action FROM runs r WHERE r.job_id=j.id AND r.status='running'
+    ORDER BY r.id DESC LIMIT 1
+) AS interrupt_action FROM jobs j"""
 
 def now():
     return datetime.now(timezone.utc).isoformat()
 
+def purge_expired_logs():
+    cutoff = time.time() - 7 * 24 * 60 * 60
+    active_logs = {
+        Path(run['log_file']).name.casefold()
+        for run in sql("SELECT log_file FROM runs WHERE status='running' AND log_file IS NOT NULL")
+    }
+    run_logs = (
+        path for path in (STATE / 'logs').glob('job-*.log')
+        if re.fullmatch(r'job-\d+-(dry-run|sync|final)-\d{8}T\d{12}Z\.log', path.name)
+        and path.name.casefold() not in active_logs
+    )
+    worker_logs = (
+        path for path in STATE.glob('replication-worker.log.*')
+        if re.fullmatch(r'replication-worker\.log\.\d{4}-\d{2}-\d{2}', path.name)
+    )
+    for path in chain(run_logs, worker_logs):
+        try:
+            if not path.is_symlink() and path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            LOGGER.warning('Unable to remove expired log %s', path, exc_info=True)
+
+@contextmanager
 def connect():
-    db = sqlite3.connect(DBPATH, timeout=30)
-    db.row_factory = sqlite3.Row
-    db.execute('PRAGMA busy_timeout=30000')
-    db.execute('PRAGMA journal_mode=WAL')
-    return db
+    with closing(sqlite3.connect(DBPATH, timeout=30)) as db, db:
+        db.row_factory = sqlite3.Row
+        db.execute('PRAGMA busy_timeout=30000')
+        db.execute('PRAGMA journal_mode=WAL')
+        yield db
 
 def sql(query, params=(), *, one=False):
     with connect() as db:
@@ -133,7 +165,8 @@ def ad_group_roles(groups, settings):
     return is_operator, is_admin
 
 def event(job_id, level, message):
-    sql('INSERT INTO events(job_id,ts,level,message) VALUES(?,?,?,?)', (job_id, now(), level, str(message)[:1800]))
+    sql('INSERT INTO events(job_id,ts,level,message) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM jobs WHERE id=?)',
+        (job_id, now(), level, str(message)[:1800], job_id))
 
 def replication_worker_online():
     heartbeat = sql(
@@ -197,6 +230,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, job_id INTEGER, ts TEXT, level TEXT, message TEXT);
         CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, job_id INTEGER, mode TEXT, started TEXT,
         finished TEXT, status TEXT, exit_code INTEGER, log_file TEXT, summary TEXT);
+        CREATE INDEX IF NOT EXISTS runs_job_id ON runs(job_id);
         CREATE TABLE IF NOT EXISTS worker_heartbeats (name TEXT PRIMARY KEY, updated TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS worker_watchers (
         job_id INTEGER PRIMARY KEY, status TEXT NOT NULL, updated TEXT NOT NULL, error TEXT);
@@ -248,7 +282,7 @@ def decode_job(job):
     return job
 
 def get_job(jid):
-    job = sql('SELECT * FROM jobs WHERE id=?', (jid,), one=True)
+    job = sql(JOBS_WITH_INTERRUPT + ' WHERE j.id=?', (jid,), one=True)
     if not job:
         raise HTTPException(404, 'Job not found')
     return decode_job(job)
@@ -290,7 +324,12 @@ def invalidate(jid):
 
 def submit(jid, mode, scheduled=False, *, automatic_replication=False):
     with LOCK:
-        job = get_job(jid)
+        try:
+            job = get_job(jid)
+        except HTTPException as exc:
+            if scheduled and exc.status_code == 404:
+                return False
+            raise
         if jid in ACTIVE or job['status'] in ('queued', 'running', 'paused'):
             if scheduled:
                 if not automatic_replication:
@@ -343,14 +382,16 @@ def submit(jid, mode, scheduled=False, *, automatic_replication=False):
 
 def wait_for_run(jid, run_id):
     while True:
-        run = sql('SELECT status FROM runs WHERE id=? AND job_id=?', (run_id, jid), one=True)
+        run = sql('SELECT status,exit_code,summary FROM runs WHERE id=? AND job_id=?', (run_id, jid), one=True)
         if not run:
-            raise HTTPException(500, 'Queued run record disappeared')
-        if run['status'] in ('success', 'failed', 'paused', 'stopped'):
-            job = get_job(jid)
+            raise HTTPException(404, 'The run is no longer available')
+        if run['status'] in ('success', 'failed', 'paused', 'stopped', 'cancelled'):
+            error = None
+            if run['status'] == 'failed':
+                error = run['summary'] if run['exit_code'] is None else f'Robocopy exit code {run["exit_code"]}'
             return {
                 'accepted': True, 'queued': False, 'status': run['status'],
-                'error': job['last_error'], 'run_id': run_id,
+                'error': error, 'run_id': run_id,
             }
         time.sleep(0.5)
 
@@ -392,33 +433,50 @@ def claim_next_run():
         ACTIVE.add(jid)
         return {'id': run_id, 'job_id': jid, 'mode': mode}
 
-def monitor_run_interrupt(proc, run_id, finished):
+def monitor_run_interrupt(proc, run_id, finished, interrupted):
     while not finished.is_set():
         try:
             run = sql('SELECT interrupt_action FROM runs WHERE id=?', (run_id,), one=True)
             if run and run['interrupt_action']:
+                if proc.poll() is not None:
+                    return
                 proc.terminate()
+                # Windows terminate() can return after observing a natural exit.
+                if proc.returncode is None:
+                    interrupted.set()
                 return
         except (OSError, sqlite3.Error):
             LOGGER.exception('Unable to interrupt run #%s', run_id)
         finished.wait(1)
 
 
-def finish_run(jid, run_id, status, code, summary):
+def finish_run(jid, run_id, status, code, summary, *, mode=None, interrupted=False, error=None):
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')
-        run = db.execute('SELECT interrupt_action FROM runs WHERE id=?', (run_id,)).fetchone()
-        action = run['interrupt_action'] if run else None
+        run = db.execute("SELECT interrupt_action FROM runs WHERE id=? AND status='running'", (run_id,)).fetchone()
+        if not run:
+            return
+        action = run['interrupt_action'] if interrupted else None
         if action:
             status = 'paused' if action == 'pause' else 'stopped'
             summary = f'Run {status} by operator. Files already copied remain at the destination.'
             code = None
-        db.execute('UPDATE runs SET finished=?,status=?,exit_code=?,summary=? WHERE id=?',
-                   (now(), status, code, summary, run_id))
+            error = None
+        finished_at = now()
+        db.execute('UPDATE runs SET finished=?,status=?,exit_code=?,summary=?,interrupt_action=NULL WHERE id=?',
+                   (finished_at, status, code, summary, run_id))
+        db.execute('UPDATE jobs SET status=?,last_exit=?,last_finished=?,last_error=? WHERE id=?',
+                   (status, code, finished_at, error, jid))
         if action:
-            db.execute('UPDATE jobs SET status=?,last_exit=NULL,last_finished=?,last_error=NULL,final_verified=0 WHERE id=?',
-                       (status, now(), jid))
-    return action
+            db.execute('UPDATE jobs SET final_verified=0 WHERE id=?', (jid,))
+        elif status == 'success' and mode == 'sync':
+            db.execute("UPDATE jobs SET continuous_ready=1,dry_run_ok=1 WHERE id=? AND schedule_type='continuous'", (jid,))
+        elif status == 'success' and mode == 'final':
+            db.execute('UPDATE jobs SET final_verified=0 WHERE id=?', (jid,))
+        elif mode == 'dry-run' or (mode == 'final' and status == 'failed'):
+            db.execute('UPDATE jobs SET dry_run_ok=?,validated=0,frozen=0,approved=0,final_verified=0 WHERE id=?',
+                       (status == 'success', jid))
+    return status
 
 
 def run_job(jid, mode, run_id):
@@ -441,7 +499,8 @@ def run_job(jid, mode, run_id):
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         finished = threading.Event()
-        monitor = threading.Thread(target=monitor_run_interrupt, args=(proc, run_id, finished), daemon=True)
+        interrupted = threading.Event()
+        monitor = threading.Thread(target=monitor_run_interrupt, args=(proc, run_id, finished, interrupted), daemon=True)
         monitor.start()
         tail = []
         try:
@@ -451,7 +510,6 @@ def run_job(jid, mode, run_id):
                     tail.append(line[-500:])
                     if len(tail) > 30:
                         tail.pop(0)
-            code = proc.wait()
         except Exception:
             proc.terminate()
             proc.wait()
@@ -459,38 +517,21 @@ def run_job(jid, mode, run_id):
         finally:
             finished.set()
             monitor.join()
+        code = proc.wait()
         ok = engine.exit_success(code)
         status = 'success' if ok else 'failed'
         summary = '\n'.join(tail[-15:])[-5000:]
-        if finish_run(jid, run_id, status, code, summary):
-            return
-        sql('UPDATE jobs SET status=?,phase=?,last_exit=?,last_finished=?,last_error=? WHERE id=?',
-            (status, mode, code, now(), None if ok else f'Robocopy exit code {code}', jid))
-        if ok:
-            if mode == 'dry-run':
-                sql(
-                    '''UPDATE jobs SET dry_run_ok=1,validated=0,frozen=0,approved=0,final_verified=0
-                       WHERE id=?''',
-                    (jid,),
-                )
-            elif mode == 'sync':
-                sql(
-                    '''UPDATE jobs SET continuous_ready=1,dry_run_ok=1
-                       WHERE id=? AND schedule_type='continuous' ''',
-                    (jid,),
-                )
-            elif mode == 'final':
-                sql('UPDATE jobs SET final_verified=0 WHERE id=?', (jid,))
-        else:
-            if mode in ('dry-run', 'final'):
-                invalidate(jid)
-        if not automatic_replication or code != 0:
+        error = None if ok else f'Robocopy exit code {code}'
+        status = finish_run(jid, run_id, status, code, summary, mode=mode,
+                            interrupted=interrupted.is_set(), error=error)
+        if status in ('paused', 'stopped'):
+            event(jid, 'info', f'{mode} {status} (run #{run_id})')
+        elif status and (not automatic_replication or code != 0):
             level = 'error' if not ok else 'warning' if automatic_replication and code & 6 else 'info'
             event(jid, level, f'{mode} {status}; Robocopy exit={code}. See run log.')
     except Exception as exc:
-        if run_id and finish_run(jid, run_id, 'failed', None, str(exc)[:500]):
-            return
-        sql('UPDATE jobs SET status=?,last_finished=?,last_error=? WHERE id=?', ('failed', now(), str(exc)[:500], jid))
+        detail = str(exc)[:500]
+        finish_run(jid, run_id, 'failed', None, detail, mode=mode, error=detail)
         event(jid, 'error', f'{mode} failed: {exc}')
     finally:
         with LOCK:
@@ -993,7 +1034,7 @@ def remove_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
 
 @app.get('/api/jobs', dependencies=[Depends(require_auth)])
 def jobs():
-    return [decode_job(job) for job in sql('SELECT * FROM jobs ORDER BY id DESC')]
+    return [decode_job(job) for job in sql(JOBS_WITH_INTERRUPT + ' ORDER BY j.id DESC')]
 
 @app.post('/api/jobs', dependencies=[Depends(require_auth), Depends(require_csrf)], status_code=201)
 def create_job(data: JobIn):
@@ -1007,15 +1048,42 @@ def create_job(data: JobIn):
         schedule_days = json.dumps(data.schedule_days) if data.schedule_days else None
         cron = data.cron if data.schedule_type == 'cron' else None
         jid = sql('''INSERT INTO jobs
-            (name,source,destination,cron,threads,schedule_type,scheduled_at,schedule_time,schedule_days,
+            (id,name,source,destination,cron,threads,schedule_type,scheduled_at,schedule_time,schedule_days,
              schedule_day,execution_mode,created)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+            SELECT MAX(COALESCE((SELECT MAX(id) FROM jobs),0),
+                       COALESCE((SELECT CAST(value AS INTEGER) FROM app_settings WHERE key='deleted_job_id'),0)) + 1,
+                   ?,?,?,?,?,?,?,?,?,?,?,?''',
             (data.name, src, dst, cron, data.threads, data.schedule_type,
              data.scheduled_at.isoformat() if data.scheduled_at else None,
              data.schedule_time, schedule_days, data.schedule_day, data.execution_mode, now()))
-    schedule(get_job(jid))
-    event(jid, 'info', 'Job created')
-    return get_job(jid)
+        job = get_job(jid)
+        schedule(job)
+        event(jid, 'info', 'Job created')
+        return job
+
+@app.delete('/api/jobs/{jid}', dependencies=[Depends(require_auth), Depends(require_csrf)])
+def delete_job(jid: int):
+    with LOCK:
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            job = db.execute('SELECT status FROM jobs WHERE id=?', (jid,)).fetchone()
+            if not job:
+                raise HTTPException(404, 'Job not found')
+            if jid in ACTIVE or job['status'] in BUSY_STATUSES:
+                raise HTTPException(409, 'Stop the queued, running, or paused run before deleting this job')
+            db.execute(
+                """INSERT INTO app_settings(key,value) VALUES('deleted_job_id',?)
+                   ON CONFLICT(key) DO UPDATE SET value=MAX(CAST(value AS INTEGER),CAST(excluded.value AS INTEGER))""",
+                (jid,),
+            )
+            for table in ('runs', 'events', 'worker_watchers'):
+                db.execute(f'DELETE FROM {table} WHERE job_id=?', (jid,))
+            db.execute('DELETE FROM jobs WHERE id=?', (jid,))
+        try:
+            SCHED.remove_job(str(jid))
+        except JobLookupError:
+            pass
+    return {'deleted': True}
 
 @app.put('/api/jobs/{jid}', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def update_job(jid: int, data: JobIn):
@@ -1062,13 +1130,18 @@ def runs(jid: int):
     get_job(jid)
     rows = sql('SELECT * FROM runs WHERE job_id=? ORDER BY id DESC LIMIT 50', (jid,))
     for run in rows:
-        if run['status'] != 'running' or not run['log_file']:
+        if not run['log_file']:
             continue
         try:
             modified = Path(run['log_file']).stat().st_mtime
+        except FileNotFoundError:
+            if run['status'] != 'running':
+                run['log_file'] = None
+            continue
         except OSError:
             continue
-        run['log_updated'] = datetime.fromtimestamp(modified, timezone.utc).isoformat()
+        if run['status'] == 'running':
+            run['log_updated'] = datetime.fromtimestamp(modified, timezone.utc).isoformat()
     return rows
 
 @app.post('/api/jobs/{jid}/run/{mode}', dependencies=[Depends(require_auth), Depends(require_csrf)])
@@ -1092,16 +1165,16 @@ def control_run(jid: int, run_id: int, action: str):
             raise HTTPException(409, 'The job is no longer in a state that supports this action')
         if run['status'] == 'running':
             if run['interrupt_action'] and (action != 'stop' or run['interrupt_action'] == 'stop'):
-                return {'status': 'running'}
+                return {'status': 'stopping' if run['interrupt_action'] == 'stop' else 'pausing'}
             db.execute('UPDATE runs SET interrupt_action=? WHERE id=?', (action, run['id']))
-            status = 'running'
+            status = 'stopping' if action == 'stop' else 'pausing'
         elif action == 'resume':
             status = 'queued'
             db.execute('INSERT INTO runs(job_id,mode,started,status,summary) VALUES(?,?,?,?,?)',
                        (jid, run['mode'], now(), status, f'Resumed from run #{run["id"]}'))
             db.execute('UPDATE jobs SET status=?,replication_paused=0 WHERE id=?', (status, jid))
         else:
-            status = 'paused' if action == 'pause' else 'stopped'
+            status = 'paused' if action == 'pause' else 'cancelled' if run['status'] == 'queued' else 'stopped'
             db.execute('UPDATE runs SET status=?,finished=?,summary=? WHERE id=?',
                        (status, now(), f'Run {status} by operator.', run['id']))
             db.execute('UPDATE jobs SET status=?,last_finished=?,last_exit=NULL,last_error=NULL WHERE id=?',

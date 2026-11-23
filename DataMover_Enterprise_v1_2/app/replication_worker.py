@@ -2,9 +2,11 @@
 import logging
 import os
 import secrets
+import sqlite3
 import threading
 import time
 from datetime import datetime
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 
@@ -51,10 +53,11 @@ if RECONCILE_SECONDS < 60:
 
 def set_watcher_status(job_id, status, error=None):
     main.sql(
-        '''INSERT INTO worker_watchers(job_id,status,updated,error) VALUES(?,?,?,?)
+        '''INSERT INTO worker_watchers(job_id,status,updated,error)
+           SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM jobs WHERE id=?)
            ON CONFLICT(job_id) DO UPDATE SET status=excluded.status,
            updated=excluded.updated,error=excluded.error''',
-        (job_id, status, main.now(), error),
+        (job_id, status, main.now(), error, job_id),
     )
 
 
@@ -133,7 +136,13 @@ class ReplicationWorker:
     def queue_due_replications(self):
         now = time.monotonic()
         for job_id in list(self.observers):
-            job = main.get_job(job_id)
+            try:
+                job = main.get_job(job_id)
+            except main.HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                self.stop_watch(job_id)
+                continue
             if job['status'] in ('queued', 'running', 'paused'):
                 continue
             if job['last_finished']:
@@ -170,9 +179,22 @@ class ReplicationWorker:
             ('replication', main.now()),
         )
 
-    def run(self):
+    def run(self, log_handler):
+        next_cleanup = 0
         while not self.stop_event.is_set():
             self.heartbeat()
+            if time.monotonic() >= next_cleanup:
+                try:
+                    log_handler.acquire()
+                    try:
+                        if time.time() >= log_handler.rolloverAt:
+                            log_handler.doRollover()
+                    finally:
+                        log_handler.release()
+                    main.purge_expired_logs()
+                except (OSError, sqlite3.Error):
+                    LOGGER.exception('Unable to purge expired logs')
+                next_cleanup = time.monotonic() + 3600
             self.reconcile_watches()
             self.queue_due_replications()
             run = main.claim_next_run()
@@ -180,14 +202,8 @@ class ReplicationWorker:
                 try:
                     main.POOL.submit(main.run_job, run['job_id'], run['mode'], run['id'])
                 except RuntimeError as exc:
-                    main.sql(
-                        "UPDATE runs SET status='failed',finished=?,summary=? WHERE id=?",
-                        (main.now(), str(exc)[:500], run['id']),
-                    )
-                    main.sql(
-                        "UPDATE jobs SET status='failed',last_finished=?,last_error=? WHERE id=?",
-                        (main.now(), str(exc)[:500], run['job_id']),
-                    )
+                    detail = str(exc)[:500]
+                    main.finish_run(run['job_id'], run['id'], 'failed', None, detail, error=detail)
                     with main.LOCK:
                         main.ACTIVE.discard(run['job_id'])
                     main.event(run['job_id'], 'error', f'Worker could not start queued run: {exc}')
@@ -226,7 +242,7 @@ def recover_interrupted_runs():
         for run in interrupted:
             detail = 'Worker stopped before this run completed; review its log before retrying.'
             db.execute(
-                "UPDATE runs SET status='failed',finished=?,summary=? WHERE id=? AND status='running'",
+                "UPDATE runs SET status='failed',finished=?,summary=?,interrupt_action=NULL WHERE id=? AND status='running'",
                 (main.now(), detail, run['id']),
             )
             db.execute(
@@ -240,21 +256,23 @@ def recover_interrupted_runs():
 
 
 def run_worker(stop_event):
-    logging.basicConfig(
-        filename=main.STATE / 'replication-worker.log',
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(message)s',
-    )
     main.init_db()
     lock_file = acquire_service_lock()
-    main.sql(
-        "UPDATE worker_watchers SET status='stopped',updated=?,error=NULL",
-        (main.now(),),
-    )
+    handler = TimedRotatingFileHandler(main.STATE / 'replication-worker.log', when='midnight',
+                                       backupCount=7, utc=True, delay=True)
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    app_logger = logging.getLogger('datamover')
+    app_logger.setLevel(logging.INFO)
+    app_logger.addHandler(handler)
     worker = ReplicationWorker(stop_event)
     try:
+        main.sql(
+            "UPDATE worker_watchers SET status='stopped',updated=?,error=NULL",
+            (main.now(),),
+        )
+        LOGGER.info('Replication worker started')
         recover_interrupted_runs()
-        worker.run()
+        worker.run(handler)
     finally:
         worker.stop()
         with main.connect() as db:
@@ -262,6 +280,8 @@ def run_worker(stop_event):
             db.commit()
         main.POOL.shutdown(wait=True, cancel_futures=False)
         lock_file.close()
+        app_logger.removeHandler(handler)
+        handler.close()
 
 
 if __name__ == '__main__':

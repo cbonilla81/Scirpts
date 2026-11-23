@@ -1,3 +1,6 @@
+import os
+import time
+
 import pytest
 import threading
 from datetime import datetime, timedelta
@@ -278,10 +281,12 @@ def test_pause_active_run_and_stop_resumed_run(roots_db, monkeypatch):
     jid = job['id']
     run_id = main.submit(jid, 'sync')['run_id']
     assert main.claim_next_run()['id'] == run_id
-    assert main.control_run(jid, run_id, 'pause')['status'] == 'running'
+    assert main.control_run(jid, run_id, 'pause')['status'] == 'pausing'
     terminated = threading.Event()
 
     class Process:
+        returncode = None
+
         @property
         def stdout(self):
             assert terminated.wait(5)
@@ -289,6 +294,9 @@ def test_pause_active_run_and_stop_resumed_run(roots_db, monkeypatch):
 
         def terminate(self):
             terminated.set()
+
+        def poll(self):
+            return self.returncode
 
         def wait(self):
             return 1
@@ -303,8 +311,78 @@ def test_pause_active_run_and_stop_resumed_run(roots_db, monkeypatch):
     with pytest.raises(HTTPException) as stale:
         main.control_run(jid, run_id, 'stop')
     assert stale.value.status_code == 409
-    assert main.control_run(jid, resumed, 'stop')['status'] == 'stopped'
+    assert main.control_run(jid, resumed, 'stop')['status'] == 'cancelled'
+    assert main.wait_for_run(jid, resumed)['status'] == 'cancelled'
     assert main.claim_next_run() is None
+
+
+@pytest.mark.parametrize(('interrupt_confirmed', 'expected'), [(True, 'stopped'), (False, 'failed')])
+def test_pending_stop_uses_confirmed_process_outcome(roots_db, interrupt_confirmed, expected):
+    main = roots_db
+    job = main.create_job(main.JobIn(
+        name='Migration', source=r'\\FS01\Shares\Finance', destination=r'\\FS02\Shares\Finance',
+    ))
+    jid = job['id']
+    run_id = main.submit(jid, 'sync')['run_id']
+    assert main.claim_next_run()['id'] == run_id
+    try:
+        assert main.control_run(jid, run_id, 'stop')['status'] == 'stopping'
+        assert main.jobs()[0]['interrupt_action'] == 'stop'
+        with pytest.raises(HTTPException) as busy:
+            main.delete_job(jid)
+        assert busy.value.status_code == 409
+        finished = main.finish_run(jid, run_id, 'failed', 8, 'Copy error',
+                                   interrupted=interrupt_confirmed, error='Copy error')
+        assert finished == expected
+        assert main.get_job(jid)['status'] == main.runs(jid)[0]['status'] == expected
+        assert main.get_job(jid)['last_error'] == (None if interrupt_confirmed else 'Copy error')
+        assert main.runs(jid)[0]['interrupt_action'] is None
+    finally:
+        main.ACTIVE.discard(jid)
+
+
+def test_delete_job_removes_schedule_and_history_without_reusing_id(roots_db):
+    main = roots_db
+    data = main.JobIn(name='Migration', source=r'\\FS01\Shares\Finance',
+                      destination=r'\\FS02\Shares\Finance', schedule_type='cron', cron='0 1 * * *')
+    jid = main.create_job(data)['id']
+    try:
+        run_id = main.submit(jid, 'sync')['run_id']
+        main.control_run(jid, run_id, 'stop')
+        assert main.SCHED.get_job(str(jid)) is not None
+        assert main.delete_job(jid) == {'deleted': True}
+        assert main.SCHED.get_job(str(jid)) is None
+        assert not main.sql('SELECT id FROM runs WHERE job_id=?', (jid,))
+        assert not main.sql('SELECT id FROM events WHERE job_id=?', (jid,))
+        assert main.submit(jid, 'sync', scheduled=True) is False
+        replacement = main.create_job(data)['id']
+        assert replacement > jid
+        main.delete_job(replacement)
+    finally:
+        if main.SCHED.get_job(str(jid)):
+            main.SCHED.remove_job(str(jid))
+
+
+def test_log_retention_preserves_recent_active_and_unrelated_files(roots_db, tmp_path, monkeypatch):
+    main = roots_db
+    monkeypatch.setattr(main, 'STATE', tmp_path)
+    logs = tmp_path / 'logs'
+    logs.mkdir()
+    expired = logs / 'job-1-sync-20260101T000000000000Z.log'
+    active = logs / 'job-2-dry-run-20260101T000000000000Z.log'
+    recent = logs / 'job-3-final-20260101T000000000000Z.log'
+    unrelated = logs / 'unrelated.log'
+    worker_archive = tmp_path / 'replication-worker.log.2026-01-01'
+    old = time.time() - 8 * 86400
+    for path in (expired, active, recent, unrelated, worker_archive):
+        path.touch()
+        if path != recent:
+            os.utime(path, (old, old))
+    main.sql("INSERT INTO runs(status,log_file) VALUES('running',?)", (str(active),))
+    main.purge_expired_logs()
+    assert not expired.exists()
+    assert not worker_archive.exists()
+    assert all(path.exists() for path in (active, recent, unrelated))
 
 
 def test_editing_job_resets_readiness_and_cutover_attestations(roots_db):
