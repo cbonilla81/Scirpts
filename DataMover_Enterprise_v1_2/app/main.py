@@ -1037,7 +1037,7 @@ def require_secure_smb_admin(request: Request, user=Depends(require_admin)):
         raise HTTPException(503, 'SMB credential management requires a Windows host')
     return user
 
-async def read_smb_payload(request):
+async def read_smb_payload(request: Request):
     if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
         raise HTTPException(415, 'Send a JSON request')
     payload = bytearray()
@@ -1057,8 +1057,8 @@ def list_smb_credentials():
             for share, username, _ in read_smb_credentials().values()]
 
 @app.put('/api/smb-credentials', dependencies=[Depends(require_secure_smb_admin), Depends(require_csrf)])
-async def put_smb_credential(request: Request):
-    share, data = await read_smb_payload(request)
+def put_smb_credential(credential_request=Depends(read_smb_payload)):
+    share, data = credential_request
     username, password = data.get('username'), data.get('password')
     if (not isinstance(username, str) or not username.strip() or len(username) > 256 or '\x00' in username
             or not isinstance(password, str) or not password or len(password) > 1024 or '\x00' in password):
@@ -1080,8 +1080,8 @@ async def put_smb_credential(request: Request):
     return {'share': share, 'username': username}
 
 @app.delete('/api/smb-credentials', dependencies=[Depends(require_secure_smb_admin), Depends(require_csrf)])
-async def remove_smb_credential(request: Request):
-    share, _ = await read_smb_payload(request)
+def remove_smb_credential(credential_request=Depends(read_smb_payload)):
+    share, _ = credential_request
     with LOCK:
         credentials = read_smb_credentials()
         server = smb_credentials.server_name(share)
