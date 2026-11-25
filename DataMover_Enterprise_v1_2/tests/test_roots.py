@@ -275,6 +275,49 @@ def test_automatic_replication_records_only_actionable_activity(roots_db, monkey
     assert main.sql('SELECT exit_code FROM runs WHERE id=?', (run['id'],), one=True)['exit_code'] == code
 
 
+@pytest.mark.parametrize(('mode', 'code', 'log_only'), [('dry-run', 5, True), ('sync', 0, False)])
+def test_robocopy_access_denied_fails_even_with_nonfatal_exit(roots_db, monkeypatch, tmp_path, mode, code, log_only):
+    main = roots_db
+    monkeypatch.setattr(main, 'STATE', tmp_path)
+    job = main.create_job(main.JobIn(
+        name='Permissions regression',
+        source=r'\\FS01\Shares\Finance',
+        destination=r'\\FS02\Shares\Finance',
+    ))
+    diagnostic = '2026/11/25 09:00:00 ERROR 5 (0x00000005) Accessing Destination Directory'
+    later_lines = ['Files : 10 0 10 0 0 0'] * 40
+
+    class Process:
+        stdout = later_lines if log_only else [diagnostic, *later_lines]
+
+        def wait(self):
+            return code
+
+    def command(*args, log_path, **kwargs):
+        log_path.parent.mkdir(exist_ok=True)
+        if log_only:
+            log_path.write_text('\n'.join([diagnostic, *later_lines]), encoding='utf-16')
+        return ['robocopy.exe']
+
+    monkeypatch.setattr(main.engine, 'command', command)
+    monkeypatch.setattr(main.subprocess, 'Popen', lambda *args, **kwargs: Process())
+    main.sql('UPDATE jobs SET dry_run_ok=1 WHERE id=?', (job['id'],))
+    queued = main.submit(job['id'], mode)
+    run = main.claim_next_run()
+    assert run['id'] == queued['run_id']
+    main.run_job(job['id'], mode, run['id'])
+
+    run = main.sql('SELECT status,exit_code,summary FROM runs WHERE id=?', (run['id'],), one=True)
+    assert run['status'] == 'failed'
+    assert run['exit_code'] == code
+    assert diagnostic in run['summary']
+    updated = main.get_job(job['id'])
+    assert updated['status'] == 'failed'
+    assert diagnostic in updated['last_error']
+    if mode == 'dry-run':
+        assert not updated['dry_run_ok']
+
+
 def test_pause_holds_queued_replication_until_resume(roots_db):
     main = roots_db
     job = main.create_job(main.JobIn(

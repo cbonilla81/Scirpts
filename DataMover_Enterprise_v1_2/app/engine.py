@@ -4,6 +4,13 @@ import re
 import shutil
 from pathlib import PureWindowsPath
 
+_ERROR_LINE = re.compile(
+    r'^\s*(?:\d{4}[/-]\d{1,2}[/-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+)?'
+    r'ERROR(?:\s+[1-9]\d*\s+\(0x[0-9a-f]+\)|\s*:)',
+    re.IGNORECASE,
+)
+_FAILED_TOTAL = re.compile(r'^\s*(?:Dirs|Files|Bytes)\s*:\s*(?:\d+\s+){4}([1-9]\d*)\s+\d+\s*$')
+
 class EngineError(ValueError):
     pass
 
@@ -60,3 +67,22 @@ def command(source, destination, *, dry_run=False, final=False, source_wins=Fals
 
 def exit_success(code):
     return 0 <= code < 8
+
+
+def output_error(line):
+    """Return a Robocopy diagnostic or a summary row with a nonzero FAILED count."""
+    if _ERROR_LINE.match(line) or _FAILED_TOTAL.match(line):
+        return line.strip()[:450]
+    return None
+
+
+def log_error(path):
+    """Scan the complete per-run log using bounded memory."""
+    try:
+        with path.open('rb') as log:
+            encoding = 'utf-16' if log.read(2) in (b'\xff\xfe', b'\xfe\xff') else 'utf-8-sig'
+        with path.open(encoding=encoding, errors='replace') as log:
+            return next((error for line in log if (error := output_error(line))), None)
+    except FileNotFoundError:
+        # /TEE provides the same diagnostics when a log was not created.
+        return None

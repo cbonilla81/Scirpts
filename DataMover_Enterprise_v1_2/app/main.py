@@ -509,9 +509,12 @@ def run_job(jid, mode, run_id, share_connections=None):
         monitor = threading.Thread(target=monitor_run_interrupt, args=(proc, run_id, finished, interrupted), daemon=True)
         monitor.start()
         tail = []
+        reported_error = None
         try:
             for line in proc.stdout:
                 line = line.rstrip()
+                if reported_error is None:
+                    reported_error = engine.output_error(line)
                 if line:
                     tail.append(line[-500:])
                     if len(tail) > 30:
@@ -524,17 +527,24 @@ def run_job(jid, mode, run_id, share_connections=None):
             finished.set()
             monitor.join()
         code = proc.wait()
-        ok = engine.exit_success(code)
+        if reported_error is None and engine.exit_success(code) and not interrupted.is_set():
+            reported_error = engine.log_error(log_path)
+        ok = engine.exit_success(code) and reported_error is None
         status = 'success' if ok else 'failed'
+        error = f'Robocopy reported {reported_error}' if reported_error else None
+        if not ok and error is None:
+            error = f'Robocopy exit code {code}'
         summary = '\n'.join(tail[-15:])[-5000:]
-        error = None if ok else f'Robocopy exit code {code}'
+        if reported_error:
+            summary = f'{error}\n{summary[-4500:]}'.rstrip()
         status = finish_run(jid, run_id, status, code, summary, mode=mode,
                             interrupted=interrupted.is_set(), error=error)
         if status in ('paused', 'stopped'):
             event(jid, 'info', f'{mode} {status} (run #{run_id})')
-        elif status and (not automatic_replication or code != 0):
+        elif status and (not ok or not automatic_replication or code != 0):
             level = 'error' if not ok else 'warning' if automatic_replication and code & 6 else 'info'
-            event(jid, level, f'{mode} {status}; Robocopy exit={code}. See run log.')
+            detail = f' {error}.' if reported_error else ''
+            event(jid, level, f'{mode} {status}; Robocopy exit={code}.{detail} See run log.')
     except Exception as exc:
         detail = str(exc)[:500]
         finish_run(jid, run_id, 'failed', None, detail, mode=mode, error=detail)
