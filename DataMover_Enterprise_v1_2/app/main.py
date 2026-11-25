@@ -1031,8 +1031,10 @@ def read_smb_credentials():
         raise HTTPException(503, str(exc)) from None
 
 def require_secure_smb_admin(request: Request, user=Depends(require_admin)):
-    if request.url.scheme != 'https' or not COOKIE_SECURE:
-        raise HTTPException(403, 'SMB credential management requires HTTPS and secure session cookies')
+    if request.url.scheme != 'https':
+        raise HTTPException(403, 'Open DataMover over HTTPS to manage SMB credentials. If you already use HTTPS, verify that the trusted proxy forwards the HTTPS scheme.')
+    if not COOKIE_SECURE:
+        raise HTTPException(403, 'Set DATAMOVER_COOKIE_SECURE=true in the API .env and restart DataMover before managing SMB credentials')
     if os.name != 'nt':
         raise HTTPException(503, 'SMB credential management requires a Windows host')
     return user

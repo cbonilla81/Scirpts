@@ -14,4 +14,16 @@ if (-not $env:DATAMOVER_ALLOWED_ROOTS) { throw 'Set DATAMOVER_ALLOWED_ROOTS' }
 if (-not (Get-Command robocopy.exe -ErrorAction SilentlyContinue)) { throw 'Robocopy unavailable' }
 $bind=if($env:DATAMOVER_BIND){$env:DATAMOVER_BIND}else{'127.0.0.1'}
 $port=if($env:DATAMOVER_PORT){$env:DATAMOVER_PORT}else{'8080'}
-& .\.venv\Scripts\python.exe -m uvicorn app.main:app --host $bind --port $port --workers 1
+$uvicornArgs = @('-m', 'uvicorn', 'app.main:app', '--host', $bind, '--port', $port, '--workers', '1')
+if ($env:DATAMOVER_TLS_CERTFILE -or $env:DATAMOVER_TLS_KEYFILE) {
+  if (-not $env:DATAMOVER_TLS_CERTFILE -or -not $env:DATAMOVER_TLS_KEYFILE) {
+    throw 'Set both DATAMOVER_TLS_CERTFILE and DATAMOVER_TLS_KEYFILE for direct HTTPS'
+  }
+  foreach ($tlsFile in @($env:DATAMOVER_TLS_CERTFILE, $env:DATAMOVER_TLS_KEYFILE)) {
+    if (-not (Test-Path -LiteralPath $tlsFile -PathType Leaf)) {
+      throw "TLS file not found: $tlsFile"
+    }
+  }
+  $uvicornArgs += @('--ssl-certfile', $env:DATAMOVER_TLS_CERTFILE, '--ssl-keyfile', $env:DATAMOVER_TLS_KEYFILE)
+}
+& .\.venv\Scripts\python.exe @uvicornArgs
