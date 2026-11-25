@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 from typing import Literal
 from zoneinfo import ZoneInfo
-from contextlib import asynccontextmanager, closing, contextmanager
+from contextlib import ExitStack, asynccontextmanager, closing, contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -479,7 +479,8 @@ def finish_run(jid, run_id, status, code, summary, *, mode=None, interrupted=Fal
     return status
 
 
-def run_job(jid, mode, run_id):
+def run_job(jid, mode, run_id, share_connections=None):
+    connections = ExitStack()
     log_path = None
     try:
         job = get_job(jid)
@@ -495,6 +496,10 @@ def run_job(jid, mode, run_id):
         sql('UPDATE runs SET log_file=? WHERE id=?', (str(log_path), run_id))
         if not automatic_replication:
             event(jid, 'info', f'{mode} started (run #{run_id})')
+        if share_connections is not None:
+            source, destination = engine.validate_pair(job['source'], job['destination'], root_paths())
+            connections.enter_context(share_connections.connect(source))
+            connections.enter_context(share_connections.connect(destination))
         # No shell, no user-controlled switches. Output goes to a bounded in-memory tail.
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -534,8 +539,11 @@ def run_job(jid, mode, run_id):
         finish_run(jid, run_id, 'failed', None, detail, mode=mode, error=detail)
         event(jid, 'error', f'{mode} failed: {exc}')
     finally:
-        with LOCK:
-            ACTIVE.discard(jid)
+        try:
+            connections.close()
+        finally:
+            with LOCK:
+                ACTIVE.discard(jid)
 
 def setup_required():
     return sql('SELECT COUNT(*) AS count FROM users', one=True)['count'] == 0

@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from contextlib import ExitStack
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -19,7 +20,7 @@ def load_environment():
         raise RuntimeError(f'Missing configuration file: {env_file}')
     allowed = {
         'DATAMOVER_STATE', 'DATAMOVER_ALLOWED_ROOTS', 'DATAMOVER_TZ',
-        'DATAMOVER_MAX_WORKERS', 'DATAMOVER_RECONCILE_SECONDS',
+        'DATAMOVER_MAX_WORKERS', 'DATAMOVER_RECONCILE_SECONDS', 'DATAMOVER_SMB_CREDENTIALS',
     }
     for raw_line in env_file.read_text(encoding='utf-8').splitlines():
         line = raw_line.strip()
@@ -39,6 +40,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from . import main
+from .smb_credentials import ShareConnections
 
 
 LOGGER = logging.getLogger('datamover.replication')
@@ -74,6 +76,7 @@ class ChangeHandler(FileSystemEventHandler):
 class ReplicationWorker:
     def __init__(self, stop_event):
         self.stop_event = stop_event
+        self.share_connections = ShareConnections(os.environ.get('DATAMOVER_SMB_CREDENTIALS'))
         self.observers = {}
         self.pending = {}
         self.pending_lock = threading.Lock()
@@ -86,20 +89,23 @@ class ReplicationWorker:
 
     def start_watch(self, job):
         job_id = job['id']
+        connection = ExitStack()
         try:
             source, _ = main.engine.validate_pair(job['source'], job['destination'], main.root_paths())
+            connection.enter_context(self.share_connections.connect(source))
             if not os.path.isdir(source):
                 raise OSError(f'Source folder is unavailable: {source}')
             observer = Observer()
             observer.schedule(ChangeHandler(job_id, self.mark_changed), source, recursive=True)
             observer.start()
         except (OSError, RuntimeError, main.engine.EngineError) as exc:
+            connection.close()
             self.retry_after[job_id] = time.monotonic() + RETRY_SECONDS
             main.event(job_id, 'error', f'Continuous watcher could not start: {exc}')
             set_watcher_status(job_id, 'error', str(exc)[:500])
             LOGGER.error('Unable to watch Job #%s source: %s', job_id, exc)
             return
-        self.observers[job_id] = observer
+        self.observers[job_id] = (observer, connection)
         set_watcher_status(job_id, 'watching')
         with self.pending_lock:
             self.pending[job_id] = time.monotonic()
@@ -108,10 +114,12 @@ class ReplicationWorker:
         main.event(job_id, 'info', 'Continuous source watcher started; initial reconciliation queued')
 
     def stop_watch(self, job_id):
-        observer = self.observers.pop(job_id, None)
-        if observer:
-            observer.stop()
-            observer.join(timeout=10)
+        watch = self.observers.pop(job_id, None)
+        if watch:
+            observer, connection = watch
+            with connection:
+                observer.stop()
+                observer.join(timeout=10)
             main.event(job_id, 'info', 'Continuous source watcher stopped')
         set_watcher_status(job_id, 'stopped')
         with self.pending_lock:
@@ -200,7 +208,8 @@ class ReplicationWorker:
             run = main.claim_next_run()
             if run:
                 try:
-                    main.POOL.submit(main.run_job, run['job_id'], run['mode'], run['id'])
+                    main.POOL.submit(main.run_job, run['job_id'], run['mode'], run['id'],
+                                     self.share_connections)
                 except RuntimeError as exc:
                     detail = str(exc)[:500]
                     main.finish_run(run['job_id'], run['id'], 'failed', None, detail, error=detail)
@@ -257,6 +266,7 @@ def recover_interrupted_runs():
 
 def run_worker(stop_event):
     main.init_db()
+    worker = ReplicationWorker(stop_event)
     lock_file = acquire_service_lock()
     handler = TimedRotatingFileHandler(main.STATE / 'replication-worker.log', when='midnight',
                                        backupCount=7, utc=True, delay=True)
@@ -264,7 +274,6 @@ def run_worker(stop_event):
     app_logger = logging.getLogger('datamover')
     app_logger.setLevel(logging.INFO)
     app_logger.addHandler(handler)
-    worker = ReplicationWorker(stop_event)
     try:
         main.sql(
             "UPDATE worker_watchers SET status='stopped',updated=?,error=NULL",

@@ -28,6 +28,40 @@ DATAMOVER_MAX_WORKERS=2
 
 The `.worker.env` file must use the same state directory and initial roots, and may set `DATAMOVER_RECONCILE_SECONDS` (default 300; minimum 60) to control the full-tree reconciliation interval.
 
+### Separate SMB credentials for different file servers
+
+Set `DATAMOVER_SMB_CREDENTIALS` in `.worker.env` to an absolute path to a credential file on the Windows worker. Each entry assigns an account to one direct UNC share. Jobs select the accounts through their source and destination UNC paths. Use the same server names in the credential file, approved roots, and job paths. Configure one share per server and use direct file-server paths for credentialed jobs. For servers without a configured entry, the worker uses its service account.
+
+Create a local directory outside the web app and shared state directory. Before writing the file, grant Administrators and SYSTEM full control and the replication service account read access. Remove inherited access for other users and the web API identity. Windows DPAPI machine scope lets the service decrypt credentials provisioned by an administrator on that host. Any local identity with access to the encrypted file can decrypt it on the same host, so the directory ACL is required.
+
+Run this in Windows PowerShell on the worker after securing the directory. Replace the example shares and account names with your own.
+
+```powershell
+Add-Type -AssemblyName System.Security
+$entries = foreach ($endpoint in @(
+    @{ Share = '\\source.domain-a.example\Data'; Username = 'DOMAINA\migration_reader' }
+    @{ Share = '\\destination.domain-b.example\Data'; Username = 'DOMAINB\migration_writer' }
+)) {
+    $credential = Get-Credential -UserName $endpoint.Username -Message "Enter SMB credentials for $($endpoint.Share)"
+    if (-not $credential) { throw 'Credential entry cancelled' }
+    $bytes = [Text.Encoding]::UTF8.GetBytes($credential.GetNetworkCredential().Password)
+    try {
+        $encrypted = [Security.Cryptography.ProtectedData]::Protect(
+            $bytes, $null, [Security.Cryptography.DataProtectionScope]::LocalMachine)
+        [pscustomobject]@{
+            share = $endpoint.Share
+            username = $credential.UserName
+            password_dpapi = [Convert]::ToBase64String($encrypted)
+        }
+    } finally {
+        [Array]::Clear($bytes, 0, $bytes.Length)
+    }
+}
+ConvertTo-Json -InputObject @($entries) | Set-Content -Encoding UTF8 -LiteralPath 'C:\ProgramData\DataMoverSecrets\smb.json'
+```
+
+Set `DATAMOVER_SMB_CREDENTIALS=C:\ProgramData\DataMoverSecrets\smb.json` and restart the replication service. Create a job using the configured UNC paths and run **Dry-Run** to check both connections. Run **Run Sync** to verify destination write access and initialize a continuous job. Scheduled runs, continuous copies and source watching use the same share configuration. Use accounts whose share and NTFS permissions are limited to the folders DataMover operators are authorized to access. To rotate credentials, regenerate the file on the worker and restart the service.
+
 Keep `.env` readable only by administrators and the API identity. Keep `.worker.env` readable only by administrators and the replication service identity. `DATAMOVER_SESSION_SECRET` must be a random value of at least 32 characters. Set `DATAMOVER_COOKIE_SECURE=true` when serving the application over HTTPS. On first startup, `DATAMOVER_ALLOWED_ROOTS` seeds the approved roots stored in the application database. Signed-in users can manage those roots through **Manage approved roots** in the UI; changes persist in SQLite and do not require editing either environment file or restarting the app.
 
 Authentication options:
@@ -52,7 +86,7 @@ Windows replication worker service ----------------------+
                  SMB source --> SMB destination
 ```
 
-The API persists run requests to SQLite; a separate Windows service claims and executes them. Run the worker under a **dedicated least-privilege domain identity**, with read access to the source and write access to the destination. Configure destination share and NTFS permissions before running jobs.
+The API persists run requests to SQLite. A separate Windows service claims and executes them under a **dedicated least-privilege domain identity**. Grant the account used for each source read access and the account used for each destination write access through both share and NTFS permissions before running jobs.
 
 ## Migration commands
 
@@ -85,7 +119,7 @@ Use **Pause run** or **Stop run** in the selected job panel to interrupt a runni
 
 - Bind to `127.0.0.1` by default; use a vetted TLS reverse proxy for remote access and set `DATAMOVER_COOKIE_SECURE=true`. Local, Active Directory and Entra ID sign-ins expire 30 minutes after login by default, even while active. Set `DATAMOVER_SESSION_TIMEOUT_MINUTES` in the API `.env` and restart the API to change the timeout. Browsers normally discard the session cookie when fully closed. To require a fresh login on reopen, disable browser session restore on managed browsers, since it can restore unexpired session cookies. Mutations require CSRF protection. The application does not provide granular job-level RBAC.
 - Approved source/destination roots are enforced; any signed-in user can add or remove roots in the UI, so root management expands or restricts the network paths available to all users. Path traversal, nested paths, unsafe switches, and arbitrary command execution are blocked.
-- Only Windows can run Robocopy. Network shares must be reachable under the **worker service account**.
+- Only Windows can run Robocopy. Shares must be reachable under their configured account or the default worker service account.
 - **Stop run** shows **Stopping** until the worker confirms the copy has ended. A copy interrupted by the worker ends as **Stopped**. A queued run stopped before it starts ends as **Cancelled**. Copy errors and runs interrupted by a worker shutdown are reported as **Failed**.
 - Select an inactive migration and choose **Delete job** to remove its schedule, run history, and events. Source and destination files are preserved. Stop queued, running, or paused runs before deleting their job.
 - Recent runs shows whether a job is waiting for a worker slot and when its Robocopy log last changed. A large file may copy without recent log output. The dashboard does not estimate byte-level completion or ETA.
