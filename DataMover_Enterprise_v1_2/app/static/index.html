@@ -340,6 +340,7 @@
           <a class="demo-link" id="demoLink" href="/demo">View demo ↗</a>
           <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh dashboard" title="Refresh">↻</button>
           <button class="button" id="rootsButton" type="button" hidden>Manage approved roots</button>
+          <button class="button" id="smbButton" type="button" hidden>Manage SMB credentials</button>
           <button class="button" id="usersButton" type="button" hidden>Manage users</button>
           <button class="button" id="lockButton" type="button" hidden>Sign out</button>
         </div>
@@ -559,11 +560,28 @@
       <div class="modal-head"><div><h2 id="rootsModalTitle">Approved file server roots</h2><p>Manage the network paths migration jobs may use.</p></div><button class="close" type="button" id="closeRootsModal" aria-label="Close">×</button></div>
       <form id="rootForm">
         <div class="field"><label for="approvedRootInput">UNC share or DFS Namespace path</label><input id="approvedRootInput" required maxlength="512" placeholder="\\files.example.com\Departments"></div>
-        <div class="modal-note">Any signed-in user can add or remove roots. Changes apply immediately. At least one root must remain; a root cannot be removed if that would leave a running migration outside approved roots.</div>
+        <div class="modal-note">Changes apply immediately. At least one root must remain. A root cannot be removed if that would leave a running migration outside approved roots.</div>
         <div class="modal-actions"><button class="button primary" type="submit">Add approved root</button></div>
       </form>
       <div id="rootsList" class="run-list" aria-live="polite"></div>
+      <div id="rootsSmbNote" class="modal-note" hidden>Only administrators can change approved roots when SMB credential management is enabled.</div>
       <div id="rootsMessage" class="message" role="status" aria-live="polite"></div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="smbModal" role="dialog" aria-modal="true" aria-labelledby="smbModalTitle">
+    <section class="modal">
+      <div class="modal-head"><div><h2 id="smbModalTitle">Manage SMB credentials</h2><p>Jobs select credentials by UNC share. Servers without an entry use the replication service account.</p></div><button class="close" type="button" id="closeSmbModal" aria-label="Close">×</button></div>
+      <div id="smbList" class="run-list" aria-live="polite"></div>
+      <div class="modal-actions"><button class="button" id="addSmbCredential" type="button" disabled>Add credential</button></div>
+      <form id="smbForm" hidden autocomplete="off">
+        <h3 id="smbFormTitle">Add credential</h3>
+        <div class="field"><label for="smbShare">UNC share</label><input id="smbShare" required maxlength="512" placeholder="\\server.example\Data"></div>
+        <div class="field"><label for="smbUsername">Domain account</label><input id="smbUsername" required maxlength="256" placeholder="DOMAIN\migration_account"></div>
+        <div class="field"><label for="smbPassword">Password</label><input id="smbPassword" type="password" required maxlength="1024" autocomplete="new-password"></div>
+        <div class="modal-actions"><button class="button" id="cancelSmbForm" type="button">Cancel</button><button class="button primary" id="saveSmbCredential" type="submit">Save credential</button></div>
+      </form>
+      <div id="smbMessage" class="message" role="status" aria-live="polite"></div>
     </section>
   </div>
 
@@ -878,6 +896,7 @@
       $('authBox').hidden = true;
       $('lockButton').hidden = false;
       $('rootsButton').hidden = false;
+      $('smbButton').hidden = demoMode || !currentUser?.is_admin;
       $('usersButton').hidden = !currentUser?.is_admin;
       $('adNavLink').hidden = demoMode || !currentUser?.is_admin;
       updateWorkspaceView();
@@ -1261,10 +1280,12 @@
       $('authBox').hidden = false;
       $('lockButton').hidden = true;
       $('rootsButton').hidden = true;
+      $('smbButton').hidden = true;
       $('usersButton').hidden = true;
       $('adNavLink').hidden = true;
       updateWorkspaceView();
       $('rootsModal').classList.remove('open');
+      closeSmb();
       $('connectionState').classList.remove('connected');
       $('connectionState').innerHTML = '<span class="dot"></span> Not connected';
       $('controllerDot').classList.remove('connected');
@@ -1316,12 +1337,31 @@
     async function loadRoots() {
       try {
         const roots = await api('/roots');
+        const canManage = !roots.some(root => root.smb_auth) || currentUser?.is_admin;
+        $('rootForm').hidden = !canManage;
+        $('rootsSmbNote').hidden = canManage;
         $('rootsList').innerHTML = roots.map(root => `
           <div class="run">
             <strong>${escapeHtml(root.path)}</strong>
             <small>Added by ${escapeHtml(root.created_by)} · ${escapeHtml(formatTime(root.created))}</small>
             <button class="text-link root-remove" type="button" data-path="${escapeHtml(root.path)}" ${roots.length <= 1 ? 'disabled' : ''}>Remove root</button>
           </div>`).join('');
+        const authLabels = {
+          service_account: 'Uses replication service account',
+          configured: 'SMB credential configured',
+          different_share: 'SMB credential is configured for a different share on this server',
+          unavailable: 'SMB credential status unavailable'
+        };
+        $('rootsList').querySelectorAll('.run').forEach((row, index) => {
+          const button = row.querySelector('.root-remove');
+          button.hidden = !canManage;
+          const label = authLabels[roots[index].smb_auth];
+          if (label) {
+            const status = document.createElement('small');
+            status.textContent = label;
+            button.before(status);
+          }
+        });
         $('rootsList').querySelectorAll('.root-remove').forEach(button => button.addEventListener('click', async () => {
           const path = button.dataset.path;
           if (!confirm(`Remove ${path} from approved roots? Existing jobs using it will no longer be able to run.`)) return;
@@ -1343,6 +1383,58 @@
       $('rootsMessage').className = 'message';
       loadRoots();
       $('approvedRootInput').focus();
+    }
+    function showSmbMessage(message, type = 'error') {
+      $('smbMessage').textContent = message;
+      $('smbMessage').className = message ? 'message show ' + type : 'message';
+    }
+    function resetSmbForm() {
+      $('smbForm').reset();
+      $('smbForm').hidden = true;
+      $('smbShare').readOnly = false;
+    }
+    function closeSmb() {
+      resetSmbForm();
+      $('smbModal').classList.remove('open');
+      $('smbList').replaceChildren();
+      $('addSmbCredential').disabled = true;
+      showSmbMessage('');
+    }
+    function editSmbCredential(credential) {
+      resetSmbForm();
+      showSmbMessage('');
+      $('smbFormTitle').textContent = credential ? 'Replace credential' : 'Add credential';
+      $('smbShare').value = credential?.share || '';
+      $('smbShare').readOnly = Boolean(credential);
+      $('smbUsername').value = credential?.username || '';
+      $('smbForm').hidden = false;
+      $(credential ? 'smbPassword' : 'smbShare').focus();
+    }
+    async function loadSmbCredentials() {
+      try {
+        const credentials = await api('/smb-credentials');
+        if (!$('smbModal').classList.contains('open')) return;
+        $('addSmbCredential').disabled = false;
+        $('smbList').innerHTML = credentials.map(credential =>
+          '<div class="run"><strong>' + escapeHtml(credential.share) + '</strong><small>' +
+          escapeHtml(credential.username) + '</small>' +
+          '<button class="text-link smb-replace" type="button">Replace</button> ' +
+          '<button class="text-link smb-remove" type="button">Remove</button></div>'
+        ).join('') || '<div class="modal-note">No SMB credentials configured. Add an approved root before saving its credential.</div>';
+        $('smbList').querySelectorAll('.run').forEach((row, index) => {
+          const credential = credentials[index];
+          row.querySelector('.smb-replace').onclick = () => editSmbCredential(credential);
+          row.querySelector('.smb-remove').onclick = async () => {
+            if (!confirm('Remove the credential for ' + credential.share + '? Future jobs will use the replication service account.')) return;
+            try {
+              await api('/smb-credentials', 'DELETE', { share: credential.share });
+              resetSmbForm();
+              showSmbMessage('Credential removed.', 'success');
+              await loadSmbCredentials();
+            } catch (error) { showSmbMessage(error.message); }
+          };
+        });
+      } catch (error) { showSmbMessage(error.message); }
     }
     function showAdSettingsMessage(message, type = 'error') {
       $('adSettingsMessage').textContent = message;
@@ -1509,6 +1601,30 @@
     $('refreshButton').addEventListener('click', () => currentUser ? refresh() : $('loginUsername').focus());
     $('usersButton').addEventListener('click', openUsers);
     $('rootsButton').addEventListener('click', openRoots);
+    $('smbButton').addEventListener('click', () => {
+      $('smbModal').classList.add('open');
+      $('closeSmbModal').focus();
+      loadSmbCredentials();
+    });
+    $('closeSmbModal').addEventListener('click', closeSmb);
+    $('smbModal').addEventListener('click', event => { if (event.target === $('smbModal')) closeSmb(); });
+    $('addSmbCredential').addEventListener('click', () => editSmbCredential());
+    $('cancelSmbForm').addEventListener('click', resetSmbForm);
+    $('smbForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = $('saveSmbCredential');
+      const password = $('smbPassword');
+      const payload = { share: $('smbShare').value.trim(), username: $('smbUsername').value.trim(), password: password.value };
+      password.value = '';
+      button.disabled = true;
+      try {
+        await api('/smb-credentials', 'PUT', payload);
+        resetSmbForm();
+        showSmbMessage('Credential saved. The worker will pick up the change.', 'success');
+        await loadSmbCredentials();
+      } catch (error) { showSmbMessage(error.message); }
+      finally { button.disabled = false; }
+    });
     $('adSettingsForm').addEventListener('submit', async event => {
       event.preventDefault();
       const button = event.currentTarget.querySelector('button[type="submit"]');
@@ -1626,6 +1742,7 @@
         closeModal();
         $('usersModal').classList.remove('open');
         $('rootsModal').classList.remove('open');
+        closeSmb();
       }
     });
     $('dryRunButton').addEventListener('click', () => runAction('dry-run'));

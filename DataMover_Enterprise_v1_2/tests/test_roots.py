@@ -2,6 +2,7 @@ import os
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 import threading
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -64,6 +65,34 @@ def test_removing_last_root_is_rejected(roots_db):
             main.ApprovedRootIn(path=r'\\FS02\Shares'), {'username': 'operator'}
         )
     assert error.value.status_code == 409
+
+
+def test_smb_credentials_require_admin_and_never_return_password(roots_db, monkeypatch, tmp_path):
+    main = roots_db
+    path = tmp_path / 'smb.json'
+    path.write_text('[]', encoding='utf-8')
+    monkeypatch.setattr(main, 'SMB_CREDENTIALS_PATH', str(path))
+    monkeypatch.setattr(main, 'COOKIE_SECURE', True)
+    monkeypatch.setattr(main, 'os', SimpleNamespace(name='nt'))
+    monkeypatch.setattr(main.smb_credentials, 'protect_password', lambda _: b'encrypted')
+    user = {'username': 'admin', 'is_admin': False}
+    monkeypatch.setitem(main.app.dependency_overrides, main.require_auth, lambda: user)
+    monkeypatch.setitem(main.app.dependency_overrides, main.require_csrf, lambda: None)
+    payload = {'share': r'\\FS01\Shares', 'username': r'DOMAIN\reader', 'password': 'test-secret'}
+    with TestClient(main.app, base_url='https://testserver') as client:
+        assert client.put('/api/smb-credentials', json=payload).status_code == 403
+        user['is_admin'] = True
+        assert client.put('/api/smb-credentials', json={**payload, 'share': r'\\other\share'}).status_code == 409
+        response = client.put('/api/smb-credentials', json=payload)
+        assert response.status_code == 200
+        metadata = {key: payload[key] for key in ('share', 'username')}
+        assert response.json() == metadata
+        assert client.get('/api/smb-credentials').json() == [metadata]
+        assert 'test-secret' not in path.read_text(encoding='utf-8')
+        assert client.get('/api/roots').json()[0]['smb_auth'] == 'configured'
+        assert client.delete('/api/smb-credentials', params={}).status_code == 415
+        assert client.request('DELETE', '/api/smb-credentials', json={'share': payload['share']}).status_code == 200
+        assert client.get('/api/roots').json()[0]['smb_auth'] == 'service_account'
 
 
 def test_removing_root_blocks_saved_job_from_running(roots_db):

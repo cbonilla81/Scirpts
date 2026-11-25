@@ -40,7 +40,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from . import main
-from .smb_credentials import ShareConnections
+from .smb_credentials import ShareConnections, server_name
 
 
 LOGGER = logging.getLogger('datamover.replication')
@@ -105,7 +105,7 @@ class ReplicationWorker:
             set_watcher_status(job_id, 'error', str(exc)[:500])
             LOGGER.error('Unable to watch Job #%s source: %s', job_id, exc)
             return
-        self.observers[job_id] = (observer, connection)
+        self.observers[job_id] = (observer, connection, server_name(source))
         set_watcher_status(job_id, 'watching')
         with self.pending_lock:
             self.pending[job_id] = time.monotonic()
@@ -116,7 +116,7 @@ class ReplicationWorker:
     def stop_watch(self, job_id):
         watch = self.observers.pop(job_id, None)
         if watch:
-            observer, connection = watch
+            observer, connection, _ = watch
             with connection:
                 observer.stop()
                 observer.join(timeout=10)
@@ -203,6 +203,16 @@ class ReplicationWorker:
                 except (OSError, sqlite3.Error):
                     LOGGER.exception('Unable to purge expired logs')
                 next_cleanup = time.monotonic() + 3600
+            try:
+                changed = self.share_connections.reload()
+            except main.engine.EngineError as exc:
+                LOGGER.error('Credential configuration unavailable: %s', exc)
+                self.stop()
+                self.stop_event.wait(RETRY_SECONDS)
+                continue
+            for job_id, (_, _, server) in list(self.observers.items()):
+                if server in changed:
+                    self.stop_watch(job_id)
             self.reconcile_watches()
             self.queue_due_replications()
             run = main.claim_next_run()

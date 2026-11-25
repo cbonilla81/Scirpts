@@ -30,7 +30,23 @@ The `.worker.env` file must use the same state directory and initial roots, and 
 
 ### Separate SMB credentials for different file servers
 
-Set `DATAMOVER_SMB_CREDENTIALS` in `.worker.env` to an absolute path to a credential file on the Windows worker. Each entry assigns an account to one direct UNC share. Jobs select the accounts through their source and destination UNC paths. Use the same server names in the credential file, approved roots, and job paths. Configure one share per server and use direct file-server paths for credentialed jobs. For servers without a configured entry, the worker uses its service account.
+Each entry assigns an account to one direct UNC share. Jobs select the accounts through their source and destination UNC paths. Use the same server names in the credential file, approved roots, and job paths. Configure one share per server and use direct file-server paths for credentialed jobs. For servers without a configured entry, the worker uses its service account.
+
+For **web administration**, run the API and replication service on the same Windows host and set the same absolute local `DATAMOVER_SMB_CREDENTIALS` path in both `.env` and `.worker.env`, for example `C:\ProgramData\DataMoverSecrets\smb.json`. Configure HTTPS with a trusted reverse proxy that forwards the HTTPS scheme and preserves the original Host, and set `DATAMOVER_COOKIE_SECURE=true`.
+
+Create the credential directory outside the web app, logs, and shared state. On the directory, grant Administrators and SYSTEM full control, the API identity Modify, and the replication service identity Read & Execute. Apply inheritable permissions to files and remove access for other identities. The API needs Modify on the directory because it saves updates by atomically replacing the file. Windows DPAPI machine scope encrypts the passwords and permits local identities with file access to decrypt them on that host. The API identity therefore has access to the encrypted credential file in web administration mode. Keep request-body capture disabled for the credential endpoint at the proxy and any monitoring layer.
+
+If the file does not already exist, initialize it with `[]` after securing the directory. An existing file created with the PowerShell workflow is compatible. Restart the API and replication service once after setting the environment variables.
+
+1. Sign in as an administrator over HTTPS and add the source and destination paths under **Manage approved roots**. When web credential management is enabled, administrators control which roots jobs can use. Operators can see the credential status of each root.
+2. Open **Manage SMB credentials** and save the account and password for each share. If the approved root is `\\server.example\Data\Finance`, enter `\\server.example\Data` as the credential's UNC share. The UI lists share and account names after saving.
+3. Create a migration job, run **Dry-Run** to check both connections, then run **Run Sync** to verify writes and initialize a continuous job if needed.
+
+The worker reloads changes automatically and restarts affected source watchers. Active copies can finish with their existing connections. A run that needs a changed credential while an older connection is still active reports a conflict and can be retried after the active copy finishes. Schedule credential rotations between large copies. An existing Windows SMB session can also produce error 1219. Let active jobs finish and restart the dedicated replication service if the conflict persists.
+
+#### PowerShell provisioning
+
+For worker-only credential administration, set the path only in `.worker.env` and use the following workflow. Manage the file through one method at a time.
 
 Create a local directory outside the web app and shared state directory. Before writing the file, grant Administrators and SYSTEM full control and the replication service account read access. Remove inherited access for other users and the web API identity. Windows DPAPI machine scope lets the service decrypt credentials provisioned by an administrator on that host. Any local identity with access to the encrypted file can decrypt it on the same host, so the directory ACL is required.
 
@@ -60,7 +76,7 @@ $entries = foreach ($endpoint in @(
 ConvertTo-Json -InputObject @($entries) | Set-Content -Encoding UTF8 -LiteralPath 'C:\ProgramData\DataMoverSecrets\smb.json'
 ```
 
-Set `DATAMOVER_SMB_CREDENTIALS=C:\ProgramData\DataMoverSecrets\smb.json` and restart the replication service. Create a job using the configured UNC paths and run **Dry-Run** to check both connections. Run **Run Sync** to verify destination write access and initialize a continuous job. Scheduled runs, continuous copies and source watching use the same share configuration. Use accounts whose share and NTFS permissions are limited to the folders DataMover operators are authorized to access. To rotate credentials, regenerate the file on the worker and restart the service.
+After the file is in place, set `DATAMOVER_SMB_CREDENTIALS=C:\ProgramData\DataMoverSecrets\smb.json` and restart the replication service. Scheduled runs, continuous copies and source watching use the same share configuration. Use accounts whose share and NTFS permissions are limited to the folders DataMover operators are authorized to access. To rotate passwords without the web UI, regenerate the file on the worker while the service is stopped.
 
 Keep `.env` readable only by administrators and the API identity. Keep `.worker.env` readable only by administrators and the replication service identity. `DATAMOVER_SESSION_SECRET` must be a random value of at least 32 characters. Set `DATAMOVER_COOKIE_SECURE=true` when serving the application over HTTPS. On first startup, `DATAMOVER_ALLOWED_ROOTS` seeds the approved roots stored in the application database. Signed-in users can manage those roots through **Manage approved roots** in the UI; changes persist in SQLite and do not require editing either environment file or restarting the app.
 

@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.middleware.sessions import SessionMiddleware
-from . import engine
+from . import engine, smb_credentials
 from .authentication import (
     DirectoryUnavailable,
     InvalidCredentials,
@@ -42,6 +42,7 @@ STATE = Path(os.environ.get('DATAMOVER_STATE', str(ROOT / 'state')))
 STATE.mkdir(parents=True, exist_ok=True)
 (STATE / 'logs').mkdir(exist_ok=True)
 DBPATH = STATE / 'datamover.sqlite3'
+SMB_CREDENTIALS_PATH = os.environ.get('DATAMOVER_SMB_CREDENTIALS', '').strip()
 SESSION_SECRET = os.environ.get('DATAMOVER_SESSION_SECRET', '')
 if len(SESSION_SECRET) < 32 or SESSION_SECRET.startswith('REPLACE_'):
     raise RuntimeError('DATAMOVER_SESSION_SECRET must be a random secret of at least 32 characters')
@@ -1002,10 +1003,102 @@ def health():
 
 @app.get('/api/roots', dependencies=[Depends(require_auth)])
 def approved_roots():
-    return get_approved_roots()
+    roots = get_approved_roots()
+    if not SMB_CREDENTIALS_PATH:
+        return roots
+    try:
+        credentials = read_smb_credentials()
+    except HTTPException:
+        for root in roots:
+            root['smb_auth'] = 'unavailable'
+        return roots
+    for root in roots:
+        credential = credentials.get(smb_credentials.server_name(root['path']))
+        if not credential:
+            root['smb_auth'] = 'service_account'
+        elif smb_credentials.share_root(root['path']).casefold() == credential[0].casefold():
+            root['smb_auth'] = 'configured'
+        else:
+            root['smb_auth'] = 'different_share'
+    return roots
+
+def read_smb_credentials():
+    if not SMB_CREDENTIALS_PATH:
+        raise HTTPException(503, 'Set DATAMOVER_SMB_CREDENTIALS for both the API and worker to enable credential management')
+    try:
+        return smb_credentials.load_credentials(SMB_CREDENTIALS_PATH)
+    except engine.EngineError as exc:
+        raise HTTPException(503, str(exc)) from None
+
+def require_secure_smb_admin(request: Request, user=Depends(require_admin)):
+    if request.url.scheme != 'https' or not COOKIE_SECURE:
+        raise HTTPException(403, 'SMB credential management requires HTTPS and secure session cookies')
+    if os.name != 'nt':
+        raise HTTPException(503, 'SMB credential management requires a Windows host')
+    return user
+
+async def read_smb_payload(request):
+    if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
+        raise HTTPException(415, 'Send a JSON request')
+    payload = bytearray()
+    async for chunk in request.stream():
+        if len(payload) + len(chunk) > 16384:
+            raise HTTPException(413, 'Credential request is too large')
+        payload.extend(chunk)
+    try:
+        data = json.loads(payload)
+        return smb_credentials.direct_share(data['share']), data
+    except (ValueError, TypeError, KeyError, IndexError):
+        raise HTTPException(422, 'Enter a direct UNC share') from None
+
+@app.get('/api/smb-credentials', dependencies=[Depends(require_secure_smb_admin)])
+def list_smb_credentials():
+    return [{'share': share, 'username': username}
+            for share, username, _ in read_smb_credentials().values()]
+
+@app.put('/api/smb-credentials', dependencies=[Depends(require_secure_smb_admin), Depends(require_csrf)])
+async def put_smb_credential(request: Request):
+    share, data = await read_smb_payload(request)
+    username, password = data.get('username'), data.get('password')
+    if (not isinstance(username, str) or not username.strip() or len(username) > 256 or '\x00' in username
+            or not isinstance(password, str) or not password or len(password) > 1024 or '\x00' in password):
+        raise HTTPException(422, 'Enter a valid domain account and password')
+    username = username.strip()
+    with LOCK:
+        credentials = read_smb_credentials()
+        server = smb_credentials.server_name(share)
+        existing = credentials.get(server)
+        if existing and existing[0].casefold() != share.casefold():
+            raise HTTPException(409, 'This server already has a credential for a different share')
+        if not any(smb_credentials.share_root(root).casefold() == share.casefold() for root in root_paths()):
+            raise HTTPException(409, 'Add an approved root on this share before saving a credential')
+        try:
+            credentials[server] = (share, username, smb_credentials.protect_password(password))
+            smb_credentials.save_credentials(SMB_CREDENTIALS_PATH, credentials)
+        except (engine.EngineError, OSError):
+            raise HTTPException(503, 'Unable to encrypt or save the worker credential') from None
+    return {'share': share, 'username': username}
+
+@app.delete('/api/smb-credentials', dependencies=[Depends(require_secure_smb_admin), Depends(require_csrf)])
+async def remove_smb_credential(request: Request):
+    share, _ = await read_smb_payload(request)
+    with LOCK:
+        credentials = read_smb_credentials()
+        server = smb_credentials.server_name(share)
+        existing = credentials.get(server)
+        if not existing or existing[0].casefold() != share.casefold():
+            raise HTTPException(404, 'SMB credential not found')
+        del credentials[server]
+        try:
+            smb_credentials.save_credentials(SMB_CREDENTIALS_PATH, credentials)
+        except OSError:
+            raise HTTPException(503, 'Unable to update the worker credential file') from None
+    return {'removed': True}
 
 @app.post('/api/roots', dependencies=[Depends(require_auth), Depends(require_csrf)], status_code=201)
 def add_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
+    if SMB_CREDENTIALS_PATH and not user.get('is_admin'):
+        raise HTTPException(403, 'Administrator access required to manage roots when SMB credentials are enabled')
     try:
         root = engine.normalize_path(data.path)
     except engine.EngineError as exc:
@@ -1020,6 +1113,8 @@ def add_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
 
 @app.delete('/api/roots', dependencies=[Depends(require_auth), Depends(require_csrf)])
 def remove_approved_root(data: ApprovedRootIn, user=Depends(require_auth)):
+    if SMB_CREDENTIALS_PATH and not user.get('is_admin'):
+        raise HTTPException(403, 'Administrator access required to manage roots when SMB credentials are enabled')
     try:
         root = engine.normalize_path(data.path)
     except engine.EngineError as exc:
