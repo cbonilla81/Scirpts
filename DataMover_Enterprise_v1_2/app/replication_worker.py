@@ -87,17 +87,19 @@ class ReplicationWorker:
         with self.pending_lock:
             self.pending.setdefault(job_id, time.monotonic() + BATCH_SECONDS)
 
-    def start_watch(self, job):
+    def start_watch(self, job, polling=False):
         job_id = job['id']
         connection = ExitStack()
         try:
             source, _ = main.engine.validate_pair(job['source'], job['destination'], main.root_paths())
-            connection.enter_context(self.share_connections.connect(source))
-            if not os.path.isdir(source):
-                raise OSError(f'Source folder is unavailable: {source}')
-            observer = Observer()
-            observer.schedule(ChangeHandler(job_id, self.mark_changed), source, recursive=True)
-            observer.start()
+            observer = None
+            if not polling:
+                connection.enter_context(self.share_connections.connect(source))
+                if not os.path.isdir(source):
+                    raise OSError(f'Source folder is unavailable: {source}')
+                observer = Observer()
+                observer.schedule(ChangeHandler(job_id, self.mark_changed), source, recursive=True)
+                observer.start()
         except (OSError, RuntimeError, main.engine.EngineError) as exc:
             connection.close()
             self.retry_after[job_id] = time.monotonic() + RETRY_SECONDS
@@ -106,28 +108,32 @@ class ReplicationWorker:
             LOGGER.error('Unable to watch Job #%s source: %s', job_id, exc)
             return
         self.observers[job_id] = (observer, connection, server_name(source))
-        set_watcher_status(job_id, 'watching')
+        set_watcher_status(job_id, 'polling' if polling else 'watching')
         with self.pending_lock:
             self.pending[job_id] = time.monotonic()
         self.next_reconcile[job_id] = time.monotonic() + RECONCILE_SECONDS
         self.retry_after.pop(job_id, None)
-        main.event(job_id, 'info', 'Continuous source watcher started; initial reconciliation queued')
+        message = ('Continuous replication uses periodic scans for this SMB server'
+                   if polling else 'Continuous source watcher started; initial reconciliation queued')
+        main.event(job_id, 'info', message)
 
     def stop_watch(self, job_id):
         watch = self.observers.pop(job_id, None)
         if watch:
             observer, connection, _ = watch
             with connection:
-                observer.stop()
-                observer.join(timeout=10)
-            main.event(job_id, 'info', 'Continuous source watcher stopped')
+                if observer is not None:
+                    observer.stop()
+                    observer.join(timeout=10)
+            if observer is not None:
+                main.event(job_id, 'info', 'Continuous source watcher stopped')
         set_watcher_status(job_id, 'stopped')
         with self.pending_lock:
             self.pending.pop(job_id, None)
         self.next_reconcile.pop(job_id, None)
         self.retry_after.pop(job_id, None)
 
-    def reconcile_watches(self):
+    def reconcile_watches(self, polling_servers):
         jobs = main.sql(
             "SELECT * FROM jobs WHERE schedule_type='continuous' AND continuous_ready=1 "
             "AND replication_paused=0 AND frozen=0 AND handoff=0"
@@ -135,11 +141,14 @@ class ReplicationWorker:
         active = {job['id']: main.decode_job(job) for job in jobs}
         for job_id in set(self.observers) - set(active):
             self.stop_watch(job_id)
+        for job_id, (observer, _, server) in list(self.observers.items()):
+            if (observer is None) != (server in polling_servers):
+                self.stop_watch(job_id)
         now = time.monotonic()
         for job_id, job in active.items():
             if job_id in self.observers or now < self.retry_after.get(job_id, 0):
                 continue
-            self.start_watch(job)
+            self.start_watch(job, polling=server_name(job['source']) in polling_servers)
 
     def queue_due_replications(self):
         now = time.monotonic()
@@ -213,9 +222,18 @@ class ReplicationWorker:
             for job_id, (_, _, server) in list(self.observers.items()):
                 if server in changed:
                     self.stop_watch(job_id)
-            self.reconcile_watches()
+            polling_servers = set()
+            blocked_servers = set()
+            if self.share_connections.config_path:
+                routes = main.sql("SELECT source,destination,status FROM jobs WHERE handoff=0")
+                polling_servers = self.share_connections.polling_servers(
+                    path for job in routes for path in (job['source'], job['destination'])
+                )
+                blocked_servers = {server_name(path) for job in routes if job['status'] == 'running'
+                                   for path in (job['source'], job['destination'])} & polling_servers
+            self.reconcile_watches(polling_servers)
             self.queue_due_replications()
-            run = main.claim_next_run()
+            run = main.claim_next_run(blocked_servers)
             if run:
                 try:
                     main.POOL.submit(main.run_job, run['job_id'], run['mode'], run['id'],

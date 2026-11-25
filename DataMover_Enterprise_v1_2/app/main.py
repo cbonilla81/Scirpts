@@ -396,21 +396,22 @@ def wait_for_run(jid, run_id):
             }
         time.sleep(0.5)
 
-def claim_next_run():
+def claim_next_run(blocked_servers=()):
     with LOCK, connect() as db:
         if len(ACTIVE) >= MAX_WORKERS:
             return None
         db.execute('BEGIN IMMEDIATE')
-        row = db.execute(
-            '''SELECT r.id,r.job_id,r.mode FROM runs r JOIN jobs j ON j.id=r.job_id
+        candidates = db.execute(
+            '''SELECT r.id,r.job_id,r.mode,j.source,j.destination FROM runs r JOIN jobs j ON j.id=r.job_id
                WHERE r.status='queued' AND (r.automatic_replication=0 OR j.replication_paused=0)
-               ORDER BY r.id LIMIT 1'''
-        ).fetchone()
+               ORDER BY r.id'''
+        )
+        row = next((row for row in candidates if row['job_id'] not in ACTIVE
+                    and not any(smb_credentials.server_name(row[field]) in blocked_servers
+                                for field in ('source', 'destination'))), None)
         if not row:
             return None
-        run_id, jid, mode = row
-        if jid in ACTIVE:
-            return None
+        run_id, jid, mode = row['id'], row['job_id'], row['mode']
         started = now()
         cursor = db.execute(
             "UPDATE runs SET status='running',started=?,summary=NULL WHERE id=? AND status='queued'",
@@ -499,8 +500,7 @@ def run_job(jid, mode, run_id, share_connections=None):
             event(jid, 'info', f'{mode} started (run #{run_id})')
         if share_connections is not None:
             source, destination = engine.validate_pair(job['source'], job['destination'], root_paths())
-            connections.enter_context(share_connections.connect(source))
-            connections.enter_context(share_connections.connect(destination))
+            connections.enter_context(share_connections.connect_run(source, destination))
         # No shell, no user-controlled switches. Output goes to a bounded in-memory tail.
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -1023,13 +1023,8 @@ def approved_roots():
             root['smb_auth'] = 'unavailable'
         return roots
     for root in roots:
-        credential = credentials.get(smb_credentials.server_name(root['path']))
-        if not credential:
-            root['smb_auth'] = 'service_account'
-        elif smb_credentials.share_root(root['path']).casefold() == credential[0].casefold():
-            root['smb_auth'] = 'configured'
-        else:
-            root['smb_auth'] = 'different_share'
+        share = smb_credentials.share_root(root['path']).casefold()
+        root['smb_auth'] = 'configured' if share in credentials else 'service_account'
     return roots
 
 def read_smb_credentials():
@@ -1078,14 +1073,11 @@ def put_smb_credential(credential_request=Depends(read_smb_payload)):
     username = username.strip()
     with LOCK:
         credentials = read_smb_credentials()
-        server = smb_credentials.server_name(share)
-        existing = credentials.get(server)
-        if existing and existing[0].casefold() != share.casefold():
-            raise HTTPException(409, 'This server already has a credential for a different share')
+        key = share.casefold()
         if not any(smb_credentials.share_root(root).casefold() == share.casefold() for root in root_paths()):
             raise HTTPException(409, 'Add an approved root on this share before saving a credential')
         try:
-            credentials[server] = (share, username, smb_credentials.protect_password(password))
+            credentials[key] = (share, username, smb_credentials.protect_password(password))
             smb_credentials.save_credentials(SMB_CREDENTIALS_PATH, credentials)
         except (engine.EngineError, OSError):
             raise HTTPException(503, 'Unable to encrypt or save the worker credential') from None
@@ -1096,11 +1088,10 @@ def remove_smb_credential(credential_request=Depends(read_smb_payload)):
     share, _ = credential_request
     with LOCK:
         credentials = read_smb_credentials()
-        server = smb_credentials.server_name(share)
-        existing = credentials.get(server)
-        if not existing or existing[0].casefold() != share.casefold():
+        key = share.casefold()
+        if key not in credentials:
             raise HTTPException(404, 'SMB credential not found')
-        del credentials[server]
+        del credentials[key]
         try:
             smb_credentials.save_credentials(SMB_CREDENTIALS_PATH, credentials)
         except OSError:

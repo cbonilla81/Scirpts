@@ -28,9 +28,11 @@ DATAMOVER_MAX_WORKERS=2
 
 The `.worker.env` file must use the same state directory and initial roots, and may set `DATAMOVER_RECONCILE_SECONDS` (default 300; minimum 60) to control the full-tree reconciliation interval.
 
-### Separate SMB credentials for different file servers
+### SMB credentials by share
 
-Each entry assigns an account to one direct UNC share. Jobs select the accounts through their source and destination UNC paths. Use the same server names in the credential file, approved roots, and job paths. Configure one share per server and use direct file-server paths for credentialed jobs. For servers without a configured entry, the worker uses its service account.
+Each entry assigns an account to one direct UNC share. Multiple shares on the same server can each have a credential. Jobs select the accounts through their source and destination UNC paths. Use the same direct server names in the credential file, approved roots, and job paths. A share without an entry uses the replication service account.
+
+Windows permits one account per SMB server in a logon session. DataMover queues copies that share a server with multiple credential routes so they can run one at a time. Continuous jobs whose source is on such a server use periodic scans at the configured reconciliation interval, which defaults to five minutes. For a single copy between two shares on the same server, use the same account on both shares, or use two jobs with an approved staging location on another server.
 
 For **web administration**, run the API and replication service on the same Windows host and set the same absolute local `DATAMOVER_SMB_CREDENTIALS` path in both `.env` and `.worker.env`, for example `C:\ProgramData\DataMoverSecrets\smb.json`. Configure HTTPS with a trusted reverse proxy that forwards the HTTPS scheme and preserves the original Host, and set `DATAMOVER_COOKIE_SECURE=true`.
 

@@ -90,9 +90,17 @@ def test_smb_credentials_require_admin_and_never_return_password(roots_db, monke
         assert client.get('/api/smb-credentials').json() == [metadata]
         assert 'test-secret' not in path.read_text(encoding='utf-8')
         assert client.get('/api/roots').json()[0]['smb_auth'] == 'configured'
+        other = {'share': r'\\FS01\Projects', 'username': r'OTHER\writer', 'password': 'another-secret'}
+        assert client.post('/api/roots', json={'path': other['share']}).status_code == 201
+        assert client.put('/api/smb-credentials', json=other).status_code == 200
+        assert client.get('/api/smb-credentials').json() == [
+            metadata, {key: other[key] for key in ('share', 'username')},
+        ]
         assert client.delete('/api/smb-credentials', params={}).status_code == 415
         assert client.request('DELETE', '/api/smb-credentials', json={'share': payload['share']}).status_code == 200
-        assert client.get('/api/roots').json()[0]['smb_auth'] == 'service_account'
+        assert {row['path'].rstrip('\\'): row['smb_auth'] for row in client.get('/api/roots').json()} == {
+            other['share']: 'configured', payload['share']: 'service_account', r'\\FS02\Shares': 'service_account',
+        }
 
 
 def test_removing_root_blocks_saved_job_from_running(roots_db):
